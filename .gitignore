@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Production build outputs
+dist/
+dist-electron/
+release/
+exe file for client/
+final/
+ffinal/
+
+# System and logs
+*.log
+.system_generated/
+.DS_Store
+Thumbs.db
+
+# Large binaries & temp artifacts
+*.apk
+scratch/
+
+# Android build
+android_src/build/
+android_src/debug.keystore
+
+# Local secrets & tokens
+*.secret
+.env
+.env.*

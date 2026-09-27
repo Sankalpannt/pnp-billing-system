@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>PNP Tech Traders - Mobile Wireless Scanner</title>
+  <meta name="theme-color" content="#0f172a">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <script src="html5-qrcode.min.js"></script>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+    body { background-color: #0b0f19; color: #f8fafc; min-height: 100vh; display: flex; flex-direction: column; }
+    
+    header { background: #0f172a; border-bottom: 1px solid #1e293b; padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 50; }
+    .brand-title { font-size: 15px; font-weight: 800; color: #38bdf8; letter-spacing: 0.5px; }
+    .brand-sub { font-size: 11px; color: #94a3b8; }
+    
+    .status-badge { display: inline-flex; align-items: center; padding: 5px 10px; border-radius: 9999px; font-size: 11px; font-weight: 700; gap: 6px; }
+    .status-online { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+    .status-offline { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .dot-online { background: #10b981; box-shadow: 0 0 8px #10b981; animation: pulse 2s infinite; }
+    .dot-offline { background: #ef4444; }
+    
+    @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
+
+    main { flex: 1; padding: 14px; display: flex; flex-direction: column; gap: 14px; max-width: 500px; margin: 0 auto; width: 100%; }
+
+    /* IP Connection Settings Card */
+    .ip-card { background: #0f172a; border: 1px solid #1e293b; border-radius: 16px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+    .ip-header { display: flex; justify-content: space-between; align-items: center; }
+    .card-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #94a3b8; }
+    .ip-row { display: flex; gap: 8px; }
+    .ip-input { flex: 1; background: #0b0f19; border: 1px solid #334155; border-radius: 10px; padding: 8px 12px; font-size: 12px; color: #38bdf8; font-family: monospace; font-weight: bold; outline: none; }
+    .ip-input:focus { border-color: #38bdf8; }
+
+    /* Camera Viewfinder Card */
+    .scanner-card { background: #0f172a; border: 1px solid #1e293b; border-radius: 20px; overflow: hidden; position: relative; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5); }
+    #reader { width: 100% !important; background: #000; min-height: 240px; border-radius: 18px 18px 0 0; overflow: hidden; }
+    #reader video { width: 100% !important; height: auto !important; object-fit: cover; }
+    
+    .scan-controls { display: flex; align-items: center; justify-content: space-around; padding: 12px; background: #0f172a; border-top: 1px solid #1e293b; gap: 8px; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 14px; border-radius: 12px; font-size: 12px; font-weight: 700; border: none; cursor: pointer; transition: all 0.2s; }
+    .btn-primary { background: #0284c7; color: white; flex: 1; }
+    .btn-primary:active { background: #0369a1; transform: scale(0.98); }
+    .btn-secondary { background: #1e293b; color: #cbd5e1; border: 1px solid #334155; }
+    .btn-secondary:active { background: #334155; }
+
+    /* Manual Input Card */
+    .manual-card { background: #0f172a; border: 1px solid #1e293b; border-radius: 18px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+    .input-row { display: flex; gap: 8px; }
+    .text-input { flex: 1; background: #0b0f19; border: 1px solid #334155; border-radius: 12px; padding: 10px 14px; font-size: 13px; color: white; font-family: monospace; outline: none; }
+    .text-input:focus { border-color: #38bdf8; box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2); }
+
+    /* Scan History */
+    .history-card { background: #0f172a; border: 1px solid #1e293b; border-radius: 18px; padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+    .history-header { display: flex; justify-content: space-between; align-items: center; }
+    .history-list { display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow-y: auto; }
+    .history-item { background: #0b0f19; border: 1px solid #1e293b; border-radius: 10px; padding: 8px 12px; display: flex; align-items: center; justify-content: space-between; font-size: 12px; }
+    .history-code { font-family: monospace; font-weight: 700; color: #38bdf8; word-break: break-all; }
+    .history-time { font-size: 10px; color: #64748b; font-family: monospace; margin-left: 8px; white-space: nowrap; }
+
+    /* Quick Tag Chips */
+    .tag-chip { background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 4px 10px; border-radius: 9999px; font-size: 10px; font-weight: 700; font-family: monospace; white-space: nowrap; cursor: pointer; transition: all 0.2s; }
+    .tag-chip:active, .tag-chip.active-chip { background: #0284c7; color: white; border-color: #38bdf8; }
+
+    /* Flash Toast */
+    .toast-overlay { position: fixed; top: 70px; left: 50%; transform: translateX(-50%); background: #10b981; color: white; padding: 10px 20px; border-radius: 9999px; font-weight: 700; font-size: 13px; box-shadow: 0 10px 25px rgba(16, 185, 129, 0.4); z-index: 100; display: none; align-items: center; gap: 6px; animation: bounceIn 0.3s ease; }
+    @keyframes bounceIn { 0% { transform: translate(-50%, -20px); opacity: 0; } 100% { transform: translate(-50%, 0); opacity: 1; } }
+
+    .help-hint { font-size: 11px; color: #64748b; text-align: center; margin-top: 4px; line-height: 1.4; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <div class="brand-title">PNP TECH TRADERS</div>
+      <div class="brand-sub">Wireless Mobile Scanner</div>
+    </div>
+    <div id="connStatus" class="status-badge status-offline">
+      <span class="status-dot dot-offline"></span>
+      <span id="connText">Disconnected</span>
+    </div>
+  </header>
+
+  <div id="toast" class="toast-overlay">
+    <span>✓ Scanned & Sent to Desktop!</span>
+  </div>
+
+  <main>
+    <!-- Desktop PC Wi-Fi IP Configuration -->
+    <div class="ip-card">
+      <div class="ip-header">
+        <div class="card-title">🖥️ PC / Laptop Connection</div>
+        <span style="font-size: 10px; color: #64748b;">Port: 8090</span>
+      </div>
+      
+      <!-- Scan QR to Connect Button -->
+      <button type="button" id="scanQrConnectBtn" class="btn" style="background: linear-gradient(135deg, #0284c7, #6366f1); color: #ffffff; font-weight: 800; width: 100%; margin-bottom: 8px; padding: 10px 14px; border-radius: 12px; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 14px rgba(2, 132, 199, 0.35); border: 1px solid rgba(255,255,255,0.15);" onclick="startPairingScan()">
+        <span style="font-size: 16px;">📷</span>
+        <span>Scan Laptop QR Code to Connect</span>
+      </button>
+
+      <div id="pairingHint" style="display: none; background: rgba(56, 189, 248, 0.15); border: 1px dashed #38bdf8; border-radius: 10px; padding: 8px; margin-bottom: 8px; font-size: 11px; color: #38bdf8; text-align: center; font-weight: 600; animation: pulse 2s infinite;">
+        🔍 Point phone camera at the QR code on your Laptop screen to Auto-Pair!
+      </div>
+
+      <div class="ip-row">
+        <input type="text" id="pcIpInput" class="ip-input" placeholder="e.g. 192.168.18.5" value="192.168.18.5">
+        <button type="button" class="btn btn-primary" style="flex: 0 0 auto; padding: 8px 14px;" onclick="saveAndReconnect()">
+          Connect ⚡
+        </button>
+      </div>
+    </div>
+
+    <!-- 🏷️ Tag Number / Section Name Card -->
+    <div class="manual-card" style="border-color: rgba(56, 189, 248, 0.3); background: #0c1527;">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div class="card-title" style="color: #38bdf8; display: flex; align-items: center; gap: 5px;">
+          🏷️ Tag Number / Section (ट्याग नं)
+        </div>
+        <span id="activeTagBadge" style="font-size: 10px; font-weight: 800; font-family: monospace; background: rgba(56, 189, 248, 0.2); color: #38bdf8; padding: 2px 8px; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.4);">
+          TAG-01
+        </span>
+      </div>
+
+      <div class="input-row">
+        <input 
+          type="text" 
+          id="tagNumberInput" 
+          class="text-input" 
+          placeholder="e.g. TAG-01, BOX-A, LOBBY-CAM..." 
+          value="TAG-01"
+          style="color: #38bdf8; font-weight: bold; text-transform: uppercase;"
+          oninput="updateActiveTag()"
+        >
+        <button type="button" class="btn btn-secondary" onclick="incrementTag()" style="padding: 8px 12px; font-size: 11px; font-weight: bold;">
+          + Next Tag
+        </button>
+      </div>
+
+      <!-- Quick Preset Tag Chips -->
+      <div style="display: flex; gap: 6px; overflow-x: auto; padding-top: 2px; padding-bottom: 2px;">
+        <button type="button" class="tag-chip" onclick="selectTag('TAG-01')">TAG-01</button>
+        <button type="button" class="tag-chip" onclick="selectTag('TAG-02')">TAG-02</button>
+        <button type="button" class="tag-chip" onclick="selectTag('TAG-03')">TAG-03</button>
+        <button type="button" class="tag-chip" onclick="selectTag('BOX-A')">BOX-A</button>
+        <button type="button" class="tag-chip" onclick="selectTag('BOX-B')">BOX-B</button>
+        <button type="button" class="tag-chip" onclick="selectTag('DVR-MAIN')">DVR-MAIN</button>
+        <button type="button" class="tag-chip" onclick="selectTag('HOTEL-SITE')">SITE-01</button>
+      </div>
+    </div>
+
+    <!-- Scanner Card -->
+    <div class="scanner-card">
+      <div id="reader"></div>
+      <div class="scan-controls">
+        <button id="toggleCameraBtn" class="btn btn-primary" onclick="toggleCamera()">
+          📷 <span id="cameraBtnText">Start Camera Scanner</span>
+        </button>
+        <button id="torchBtn" class="btn btn-secondary" onclick="toggleTorch()" style="display: none;">
+          🔦 Torch
+        </button>
+        <button id="switchCameraBtn" class="btn btn-secondary" onclick="switchCamera()" style="display: none;">
+          🔄 Flip
+        </button>
+      </div>
+    </div>
+
+    <!-- Manual / Paste Input Card -->
+    <div class="manual-card">
+      <div class="card-title">⌨️ Manual Barcode / S/N Entry</div>
+      <form onsubmit="handleManualSend(event)" class="input-row">
+        <input type="text" id="manualInput" class="text-input" placeholder="Type or paste barcode / S/N..." autocomplete="off">
+        <button type="submit" class="btn btn-primary">Send ➜</button>
+      </form>
+    </div>
+
+    <!-- History Card -->
+    <div class="history-card">
+      <div class="history-header">
+        <div class="card-title">📜 Scanned This Session (<span id="historyCount">0</span>)</div>
+        <button onclick="clearHistory()" class="btn btn-secondary" style="padding: 4px 8px; font-size: 10px;">Clear</button>
+      </div>
+      <div id="historyList" class="history-list">
+        <div style="font-size: 11px; color: #475569; text-align: center; padding: 12px;">No items scanned yet.</div>
+      </div>
+    </div>
+
+    <p class="help-hint">
+      1. Give a <strong>Tag Number</strong> (e.g. TAG-01, BOX-A) on top.<br>
+      2. Point camera at camera & DVR barcodes — they will sync to PC with their Tag Number!
+    </p>
+  </main>
+
+  <script>
+    let ws = null;
+    let html5QrCode = null;
+    let isCameraRunning = false;
+    let currentFacingMode = 'environment';
+    let isTorchOn = false;
+    let lastScannedText = '';
+    let lastScanTime = 0;
+    const historyItems = [];
+
+    function updateActiveTag() {
+      const val = (document.getElementById('tagNumberInput')?.value || 'TAG-01').trim().toUpperCase();
+      const badge = document.getElementById('activeTagBadge');
+      if (badge) badge.innerText = val || 'TAG-01';
+    }
+
+    function selectTag(tag) {
+      const input = document.getElementById('tagNumberInput');
+      if (input) {
+        input.value = tag;
+        updateActiveTag();
+      }
+    }
+
+    function incrementTag() {
+      const input = document.getElementById('tagNumberInput');
+      if (!input) return;
+      const current = input.value.trim().toUpperCase();
+      const match = current.match(/^(.*?)(\d+)$/);
+      if (match) {
+        const prefix = match[1];
+        const num = parseInt(match[2], 10) + 1;
+        const formattedNum = match[2].startsWith('0') && match[2].length > 1 ? String(num).padStart(match[2].length, '0') : String(num);
+        input.value = `${prefix}${formattedNum}`;
+      } else {
+        input.value = `${current}-2`;
+      }
+      updateActiveTag();
+    }
+
+    // Load saved IP from local storage
+    const savedIp = localStorage.getItem('pnp_pc_ip');
+    if (savedIp) {
+      document.getElementById('pcIpInput').value = savedIp;
+    }
+
+    let isPairingMode = false;
+
+    function startPairingScan() {
+      isPairingMode = true;
+      const hint = document.getElementById('pairingHint');
+      if (hint) hint.style.display = 'block';
+      if (!isCameraRunning) {
+        startCamera();
+      }
+      showToast('🔍 Point at Laptop Screen QR Code');
+      const reader = document.getElementById('reader');
+      if (reader) {
+        reader.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+
+    function extractIpFromQr(text) {
+      if (!text) return null;
+      const str = String(text).trim();
+      // Match http://192.168.x.x:8090, ws://192.168.x.x:8090, 192.168.x.x, 10.x.x.x, 172.x.x.x
+      const match = str.match(/(?:https?:\/\/|ws:\/\/)?((?:\d{1,3}\.){3}\d{1,3})(?::\d+)?/i);
+      if (match && match[1]) {
+        return match[1];
+      }
+      return null;
+    }
+
+    function playPairSuccessBeep() {
+      try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(523.25, audioCtx.currentTime); // C5
+        osc.frequency.setValueAtTime(659.25, audioCtx.currentTime + 0.09); // E5
+        osc.frequency.setValueAtTime(783.99, audioCtx.currentTime + 0.18); // G5
+        osc.frequency.setValueAtTime(1046.50, audioCtx.currentTime + 0.27); // C6
+        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.4);
+      } catch (e) {}
+    }
+
+    // Web Audio Beep Sound
+    function playBeep() {
+      try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(1200, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(2400, audioCtx.currentTime + 0.08);
+        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.12);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.12);
+      } catch (e) {}
+    }
+
+    function vibratePhone() {
+      if (navigator.vibrate) {
+        try { navigator.vibrate(80); } catch(e) {}
+      }
+    }
+
+    function showToast(text) {
+      const toast = document.getElementById('toast');
+      toast.innerHTML = '<span>✓ ' + text + '</span>';
+      toast.style.display = 'flex';
+      setTimeout(() => { toast.style.display = 'none'; }, 2500);
+    }
+
+    // Connect WebSocket to Desktop Relay Server
+    function connectRelay() {
+      const ip = document.getElementById('pcIpInput').value.trim() || '192.168.18.5';
+      const wsUrl = 'ws://' + ip + ':8090?type=mobile&device=' + encodeURIComponent(navigator.userAgent.includes('iPhone') ? 'iPhone Scanner' : 'Android Mobile Scanner');
+      
+      const badge = document.getElementById('connStatus');
+      badge.className = 'status-badge status-offline';
+      badge.innerHTML = '<span class="status-dot dot-offline"></span><span>Connecting...</span>';
+
+      try {
+        ws = new WebSocket(wsUrl);
+
+        ws.onopen = () => {
+          badge.className = 'status-badge status-online';
+          badge.innerHTML = '<span class="status-dot dot-online"></span><span>Connected to PC</span>';
+          ws.send(JSON.stringify({
+            type: 'REGISTER_MOBILE',
+            deviceName: navigator.userAgent.includes('iPhone') ? 'iPhone Scanner' : 'Android Mobile Scanner'
+          }));
+        };
+
+        ws.onclose = () => {
+          badge.className = 'status-badge status-offline';
+          badge.innerHTML = '<span class="status-dot dot-offline"></span><span>Disconnected (Tap Connect)</span>';
+        };
+
+        ws.onerror = () => {
+          try { ws.close(); } catch(e) {}
+        };
+      } catch(e) {
+        badge.className = 'status-badge status-offline';
+        badge.innerHTML = '<span class="status-dot dot-offline"></span><span>Connection Error</span>';
+      }
+    }
+
+    // Send Scanned Item to Desktop PC with Tag Number
+    function sendBarcode(code) {
+      const cleanCode = String(code).trim();
+      if (!cleanCode) return;
+
+      const tagInput = document.getElementById('tagNumberInput');
+      const tagNumber = (tagInput?.value || 'TAG-01').trim().toUpperCase();
+
+      playBeep();
+      vibratePhone();
+      showToast('[' + tagNumber + '] Sent: ' + cleanCode);
+
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'SCAN_EVENT',
+          payload: {
+            rawText: cleanCode,
+            serialNumber: cleanCode.replace(/^SN:/i, ''),
+            tagNumber: tagNumber,
+            sectionName: 'Tag ' + tagNumber,
+            timestamp: Date.now()
+          }
+        }));
+      }
+
+      // Add to UI history
+      historyItems.unshift({ 
+        code: cleanCode, 
+        tag: tagNumber,
+        time: new Date().toLocaleTimeString() 
+      });
+      renderHistory();
+    }
+
+    function renderHistory() {
+      const countEl = document.getElementById('historyCount');
+      const listEl = document.getElementById('historyList');
+      countEl.innerText = historyItems.length;
+
+      if (historyItems.length === 0) {
+        listEl.innerHTML = '<div style="font-size: 11px; color: #475569; text-align: center; padding: 12px;">No items scanned yet.</div>';
+        return;
+      }
+
+      listEl.innerHTML = historyItems.slice(0, 20).map(item => `
+        <div class="history-item">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span style="font-size: 9px; font-weight: 800; font-family: monospace; background: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 1px 6px; border-radius: 4px; border: 1px solid rgba(56, 189, 248, 0.3);">
+              ${item.tag || 'TAG'}
+            </span>
+            <span class="history-code">${item.code}</span>
+          </div>
+          <span class="history-time">${item.time}</span>
+        </div>
+      `).join('');
+    }
+
+    function clearHistory() {
+      historyItems.length = 0;
+      renderHistory();
+    }
+
+    function handleManualSend(e) {
+      e.preventDefault();
+      const input = document.getElementById('manualInput');
+      const val = input.value.trim();
+      if (val) {
+        sendBarcode(val);
+        input.value = '';
+      }
+    }
+
+    // Camera Lifecycle
+    async function startCamera() {
+      try {
+        if (!html5QrCode) {
+          html5QrCode = new Html5Qrcode('reader');
+        }
+
+        const config = {
+          fps: 15,
+          qrbox: { width: 250, height: 180 },
+          aspectRatio: 1.3333,
+          formatsToSupport: [
+            Html5QrcodeSupportedFormats.QR_CODE,
+            Html5QrcodeSupportedFormats.EAN_13,
+            Html5QrcodeSupportedFormats.EAN_8,
+            Html5QrcodeSupportedFormats.CODE_128,
+            Html5QrcodeSupportedFormats.CODE_39,
+            Html5QrcodeSupportedFormats.UPC_A,
+            Html5QrcodeSupportedFormats.UPC_E,
+            Html5QrcodeSupportedFormats.ITF
+          ]
+        };
+
+        await html5QrCode.start(
+          { facingMode: currentFacingMode },
+          config,
+          (decodedText) => {
+            const now = Date.now();
+
+            // Check if this is a Laptop / PC Pairing QR Code
+            const detectedIp = extractIpFromQr(decodedText);
+            const isPairingQr = isPairingMode || (detectedIp && (decodedText.includes(':8090') || decodedText.includes(':3000') || decodedText.toLowerCase().includes('pnp')));
+            
+            if (isPairingQr && detectedIp) {
+              if (now - lastScanTime < 2000) return;
+              lastScanTime = now;
+              isPairingMode = false;
+              const hint = document.getElementById('pairingHint');
+              if (hint) hint.style.display = 'none';
+              document.getElementById('pcIpInput').value = detectedIp;
+              localStorage.setItem('pnp_pc_ip', detectedIp);
+              playPairSuccessBeep();
+              vibratePhone();
+              showToast('🎉 Connected to Laptop (' + detectedIp + ')!');
+              connectRelay();
+              return;
+            }
+
+            // Prevent rapid multi-firing of same barcode within 1.5 seconds
+            if (decodedText === lastScannedText && (now - lastScanTime) < 1500) {
+              return;
+            }
+            lastScannedText = decodedText;
+            lastScanTime = now;
+            sendBarcode(decodedText);
+          },
+          (errorMessage) => {
+            // Ignored - frame without barcode
+          }
+        );
+
+        isCameraRunning = true;
+        document.getElementById('cameraBtnText').innerText = 'Stop Camera';
+        document.getElementById('toggleCameraBtn').className = 'btn btn-secondary';
+        document.getElementById('torchBtn').style.display = 'inline-flex';
+        document.getElementById('switchCameraBtn').style.display = 'inline-flex';
+      } catch (err) {
+        console.error('Camera start error:', err);
+        alert('Could not start camera. Please ensure camera permissions are granted in your browser settings.');
+      }
+    }
+
+    async function stopCamera() {
+      if (html5QrCode && isCameraRunning) {
+        try {
+          await html5QrCode.stop();
+          isCameraRunning = false;
+          document.getElementById('cameraBtnText').innerText = 'Start Camera Scanner';
+          document.getElementById('toggleCameraBtn').className = 'btn btn-primary';
+          document.getElementById('torchBtn').style.display = 'none';
+          document.getElementById('switchCameraBtn').style.display = 'none';
+        } catch (e) {
+          console.error('Error stopping camera:', e);
+        }
+      }
+    }
+
+    function toggleCamera() {
+      if (isCameraRunning) {
+        stopCamera();
+      } else {
+        startCamera();
+      }
+    }
+
+    async function switchCamera() {
+      await stopCamera();
+      currentFacingMode = (currentFacingMode === 'environment') ? 'user' : 'environment';
+      await startCamera();
+    }
+
+    async function toggleTorch() {
+      if (!html5QrCode || !isCameraRunning) return;
+      try {
+        isTorchOn = !isTorchOn;
+        await html5QrCode.applyVideoConstraints({
+          advanced: [{ torch: isTorchOn }]
+        });
+        document.getElementById('torchBtn').innerText = isTorchOn ? '🔦 Torch ON' : '🔦 Torch';
+      } catch (e) {
+        console.warn('Torch not supported on this device/browser');
+      }
+    }
+
+    // Initialize on page load
+    window.addEventListener('DOMContentLoaded', () => {
+      connectRelay();
+      document.getElementById('toggleCameraBtn').focus();
+    });
+  </script>
+</body>
+</html>
