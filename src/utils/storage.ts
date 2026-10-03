@@ -1,7 +1,7 @@
 import Dexie, { Table } from 'dexie';
 import { 
   Invoice, Customer, CatalogItem, PasswordItem, CompanyDetails, DatabaseSnapshot, 
-  ShopSpreadsheetData 
+  ShopSpreadsheetData, StockLog 
 } from '../types/invoice';
 
 export class PNPTechDatabase extends Dexie {
@@ -9,6 +9,7 @@ export class PNPTechDatabase extends Dexie {
   customers!: Table<Customer, string>;
   catalog!: Table<CatalogItem, string>;
   passwords!: Table<PasswordItem, string>;
+  stockLogs!: Table<StockLog, string>;
 
   constructor() {
     super('PNPTechBillingDB');
@@ -22,6 +23,13 @@ export class PNPTechDatabase extends Dexie {
       customers: 'id, name, phone, panVatNo',
       catalog: 'id, category, description',
       passwords: 'id, title, category, username, createdAt'
+    });
+    this.version(3).stores({
+      invoices: 'id, invoiceNumber, dateBS, dateAD, customerName, customerPhone, paymentStatus, fiscalYear, createdAt',
+      customers: 'id, name, phone, panVatNo',
+      catalog: 'id, category, description, code',
+      passwords: 'id, title, category, username, createdAt',
+      stockLogs: 'id, itemId, invoiceId, type, timestamp'
     });
   }
 }
@@ -70,37 +78,25 @@ export const DEFAULT_COMPANY_DETAILS: CompanyDetails = {
   }
 };
 
-export const INITIAL_CATALOG: CatalogItem[] = [
-  { id: '1', category: 'CCTV & Security', description: '2MP HD Night Vision Dome Camera (Hikvision/Dahua)', unit: 'Pcs', price: 2800 },
-  { id: '2', category: 'CCTV & Security', description: '4MP IP Outdoor Bullet Camera (ColorVu / Full Color)', unit: 'Pcs', price: 4800 },
-  { id: '3', category: 'CCTV & Security', description: '8-Channel HD DVR / NVR 4K Recorders', unit: 'Pcs', price: 7500 },
-  { id: '4', category: 'CCTV & Security', description: '1TB Surveillance Hard Disk Drive (Seagate SkyHawk / WD Purple)', unit: 'Pcs', price: 6200 },
-  { id: '5', category: 'CCTV & Security', description: '2TB Surveillance Hard Disk Drive (WD Purple / Seagate)', unit: 'Pcs', price: 9200 },
-  { id: '6', category: 'CCTV & Security', description: 'CCTV Cable 3+1 Pure Copper Coaxial Wire (Per Meter)', unit: 'Mtr', price: 45 },
-  { id: '7', category: 'CCTV & Security', description: 'Cat6 Pure Copper High-Speed UTP Network Cable', unit: 'Mtr', price: 40 },
-  { id: '8', category: 'CCTV & Security', description: 'CCTV Full System Installation, Alignment & Cabling Service', unit: 'Job', price: 3500 },
-  { id: '9', category: 'Accessories', description: '12V 5A Centralized Power Supply Box for CCTV', unit: 'Pcs', price: 1500 },
-  { id: '10', category: 'Accessories', description: '12V 10A Heavy Duty SMPS Power Supply', unit: 'Pcs', price: 2400 },
-  { id: '11', category: 'Accessories', description: 'BNC & DC Power Connectors (Set of 8 Pairs)', unit: 'Sets', price: 600 },
-  { id: '12', category: 'Accessories', description: '4-Port / 8-Port 100Mbps PoE Network Switch', unit: 'Pcs', price: 3800 },
-  { id: '13', category: 'Accessories', description: '1.5M / 3M High-Speed HDMI Cable 4K Gold Plated', unit: 'Pcs', price: 450 },
-  { id: '14', category: 'General Products', description: 'Wireless Optical Mouse 2.4GHz (Logitech / Rapoo)', unit: 'Pcs', price: 650 },
-  { id: '15', category: 'General Products', description: 'USB 3.2 High-Speed 64GB Flash Drive (SanDisk / Kingston)', unit: 'Pcs', price: 850 },
-  { id: '16', category: 'General Products', description: 'Heavy Duty 6-Socket Surge Protector Power Strip Extension', unit: 'Pcs', price: 950 },
-  { id: '17', category: 'General Products', description: 'Cat6 Pure Copper Molded RJ45 Patch Cord 3 Meter', unit: 'Pcs', price: 180 },
-  { id: '18', category: 'Photo & Print', description: 'Passport Size Photo (8 Copies Glossy Lab Print)', unit: 'Pkt', price: 200 },
-  { id: '19', category: 'Photo & Print', description: 'Visa / MRP Photo Official Format (4 Copies)', unit: 'Pkt', price: 250 },
-  { id: '20', category: 'Photo & Print', description: 'Digital Soft Copy & High-Res Image Transfer', unit: 'Pcs', price: 100 },
-  { id: '21', category: 'Framing', description: 'Photo Frame 12x18 inch (Synthetic Matte)', unit: 'Pcs', price: 1200 },
-  { id: '22', category: 'Framing', description: 'Photo Frame 16x24 inch (Wooden Finish)', unit: 'Pcs', price: 2500 },
-  { id: '23', category: 'Services', description: 'Technical Site Survey & Security Audit', unit: 'Job', price: 1500 }
+export const DEMO_CCTV_STARTER_ITEMS: CatalogItem[] = [
+  { id: '1', code: 'CAM-HIK-2MP', category: 'CCTV & Security', description: '2MP HD Night Vision Dome Camera (Hikvision/Dahua)', unit: 'Pcs', price: 2800, costPrice: 2150, stockQty: 24, minStockAlert: 5, trackStock: true, location: 'Rack A-1', notes: '2 Years Replacement Warranty' },
+  { id: '2', code: 'CAM-DAH-4MP', category: 'CCTV & Security', description: '4MP IP Outdoor Bullet Camera (ColorVu / Full Color)', unit: 'Pcs', price: 4800, costPrice: 3750, stockQty: 12, minStockAlert: 3, trackStock: true, location: 'Rack A-2', notes: 'Waterproof IP67, Built-in Mic' },
+  { id: '3', code: 'NVR-HIK-8CH', category: 'CCTV & Security', description: '8-Channel HD DVR / NVR 4K Recorders', unit: 'Pcs', price: 7500, costPrice: 5800, stockQty: 6, minStockAlert: 2, trackStock: true, location: 'Rack B-1', notes: 'HDMI 4K Output, Cloud P2P' },
+  { id: '4', code: 'HDD-SEA-1TB', category: 'CCTV & Security', description: '1TB Surveillance Hard Disk Drive (Seagate SkyHawk / WD Purple)', unit: 'Pcs', price: 6200, costPrice: 5100, stockQty: 10, minStockAlert: 3, trackStock: true, location: 'Locker C-1', notes: '3 Years Warranty - Surveillance Grade' },
+  { id: '5', code: 'HDD-WD-2TB', category: 'CCTV & Security', description: '2TB Surveillance Hard Disk Drive (WD Purple / Seagate)', unit: 'Pcs', price: 9200, costPrice: 7400, stockQty: 8, minStockAlert: 2, trackStock: true, location: 'Locker C-1', notes: '3 Years Warranty - High Endurance' },
+  { id: '6', code: 'CAB-COAX-1M', category: 'CCTV & Security', description: 'CCTV Cable 3+1 Pure Copper Coaxial Wire (Per Meter)', unit: 'Mtr', price: 45, costPrice: 32, stockQty: 450, minStockAlert: 50, trackStock: true, location: 'Ground Store', notes: '100% Solid Copper' },
+  { id: '7', code: 'CAB-CAT6-1M', category: 'CCTV & Security', description: 'Cat6 Pure Copper High-Speed UTP Network Cable', unit: 'Mtr', price: 40, costPrice: 28, stockQty: 600, minStockAlert: 100, trackStock: true, location: 'Ground Store', notes: 'Gigabit LAN Co-axial' },
+  { id: '8', code: 'SRV-CCTV-INST', category: 'Services', description: 'CCTV Full System Installation, Alignment & Cabling Service', unit: 'Job', price: 3500, costPrice: 0, stockQty: 0, minStockAlert: 0, trackStock: false, notes: 'On-site technical support' },
+  { id: '9', code: 'PSU-12V-5A', category: 'Accessories', description: '12V 5A Centralized Power Supply Box for CCTV', unit: 'Pcs', price: 1500, costPrice: 1100, stockQty: 18, minStockAlert: 4, trackStock: true, location: 'Rack B-2', notes: 'Overload Protected' },
+  { id: '10', code: 'PSU-12V-10A', category: 'Accessories', description: '12V 10A Heavy Duty SMPS Power Supply', unit: 'Pcs', price: 2400, costPrice: 1800, stockQty: 15, minStockAlert: 3, trackStock: true, location: 'Rack B-2', notes: 'Heavy Duty Metal Body' },
+  { id: '11', code: 'ACC-BNC-SET', category: 'Accessories', description: 'BNC & DC Power Connectors (Set of 8 Pairs)', unit: 'Sets', price: 600, costPrice: 380, stockQty: 40, minStockAlert: 10, trackStock: true, location: 'Drawer 1', notes: 'Gold Plated Pins' },
+  { id: '12', code: 'NET-POE-SWITCH', category: 'Accessories', description: '4-Port / 8-Port 100Mbps PoE Network Switch', unit: 'Pcs', price: 3800, costPrice: 2900, stockQty: 8, minStockAlert: 2, trackStock: true, location: 'Rack B-1', notes: 'IEEE 802.3af Standard' },
+  { id: '13', code: 'ACC-HDMI-3M', category: 'Accessories', description: '1.5M / 3M High-Speed HDMI Cable 4K Gold Plated', unit: 'Pcs', price: 450, costPrice: 280, stockQty: 25, minStockAlert: 5, trackStock: true, location: 'Rack B-3', notes: '4K 60Hz Ready' }
 ];
 
-export const INITIAL_CUSTOMERS: Customer[] = [
-  { id: 'c1', name: 'Sharma Traders Pvt. Ltd.', address: 'Mahendrapool, Pokhara', phone: '9846011111', panVatNo: '304958671' },
-  { id: 'c2', name: 'Ramesh Adhikari', address: 'Lakeside, Pokhara', phone: '9806122222' },
-  { id: 'c3', name: 'Hotel Annapurna Sanctuary', address: 'Gairapatan, Pokhara', phone: '061-520123', panVatNo: '600129845' }
-];
+export const INITIAL_CATALOG: CatalogItem[] = [];
+
+export const INITIAL_CUSTOMERS: Customer[] = [];
 
 export const INITIAL_PASSWORDS: PasswordItem[] = [
   {
@@ -166,158 +162,7 @@ export const INITIAL_SPREADSHEET_DATA: ShopSpreadsheetData = {
         { id: 'location', title: 'Rack / Shelf', type: 'text', width: 110 },
         { id: 'notes', title: 'Warranty & Notes', type: 'text', width: 200 }
       ],
-      rows: [
-        {
-          id: 'row-p-1',
-          code: 'CAM-HIK-2MP',
-          name: '2MP HD Night Vision Dome Camera (Hikvision)',
-          category: 'CCTV & Security',
-          unit: 'Pcs',
-          costPrice: 2150,
-          dealerPrice: 2450,
-          retailPrice: 2800,
-          stockQty: 24,
-          marginPercent: 30.2,
-          stockValue: 67200,
-          location: 'Rack A-1',
-          notes: '2 Years Replacement Warranty'
-        },
-        {
-          id: 'row-p-2',
-          code: 'CAM-DAH-4MP',
-          name: '4MP IP Outdoor Bullet Camera (ColorVu / Full Color)',
-          category: 'CCTV & Security',
-          unit: 'Pcs',
-          costPrice: 3750,
-          dealerPrice: 4200,
-          retailPrice: 4800,
-          stockQty: 12,
-          marginPercent: 28.0,
-          stockValue: 57600,
-          location: 'Rack A-2',
-          notes: 'Waterproof IP67, Built-in Mic'
-        },
-        {
-          id: 'row-p-3',
-          code: 'NVR-HIK-8CH',
-          name: '8-Channel 4K NVR Network Video Recorder',
-          category: 'CCTV & Security',
-          unit: 'Pcs',
-          costPrice: 5800,
-          dealerPrice: 6600,
-          retailPrice: 7500,
-          stockQty: 6,
-          marginPercent: 29.3,
-          stockValue: 45000,
-          location: 'Rack B-1',
-          notes: 'HDMI 4K Output, Cloud P2P Hik-Connect'
-        },
-        {
-          id: 'row-p-4',
-          code: 'HDD-SEA-1TB',
-          name: '1TB Surveillance Hard Disk (Seagate SkyHawk)',
-          category: 'CCTV & Security',
-          unit: 'Pcs',
-          costPrice: 5100,
-          dealerPrice: 5650,
-          retailPrice: 6200,
-          stockQty: 10,
-          marginPercent: 21.6,
-          stockValue: 62000,
-          location: 'Locker C-1',
-          notes: '3 Years Warranty - Surveillance Grade'
-        },
-        {
-          id: 'row-p-5',
-          code: 'CAB-COP-300',
-          name: 'Cat6 Pure Copper High-Speed UTP Cable (305m Drum)',
-          category: 'CCTV & Security',
-          unit: 'Roll',
-          costPrice: 9200,
-          dealerPrice: 10500,
-          retailPrice: 12200,
-          stockQty: 4,
-          marginPercent: 32.6,
-          stockValue: 48800,
-          location: 'Ground Floor Store',
-          notes: '100% Solid Copper'
-        },
-        {
-          id: 'row-p-6',
-          code: 'PSU-12V-10A',
-          name: '12V 10A Heavy Duty CCTV Power Supply Box',
-          category: 'Accessories',
-          unit: 'Pcs',
-          costPrice: 1750,
-          dealerPrice: 2050,
-          retailPrice: 2400,
-          stockQty: 15,
-          marginPercent: 37.1,
-          stockValue: 36000,
-          location: 'Rack B-3',
-          notes: 'Overvoltage & Surge Protection'
-        },
-        {
-          id: 'row-p-7',
-          code: 'IT-MOU-LOGI',
-          name: 'Logitech M170 Wireless Optical Mouse 2.4GHz',
-          category: 'General Products',
-          unit: 'Pcs',
-          costPrice: 480,
-          dealerPrice: 560,
-          retailPrice: 650,
-          stockQty: 18,
-          marginPercent: 35.4,
-          stockValue: 11700,
-          location: 'Counter Showcase 1',
-          notes: '1 Year Warranty'
-        },
-        {
-          id: 'row-p-8',
-          code: 'IT-PEN-64GB',
-          name: 'SanDisk Ultra 64GB USB 3.2 Flash Drive',
-          category: 'General Products',
-          unit: 'Pcs',
-          costPrice: 620,
-          dealerPrice: 720,
-          retailPrice: 850,
-          stockQty: 22,
-          marginPercent: 37.1,
-          stockValue: 18700,
-          location: 'Counter Showcase 1',
-          notes: 'High-speed 130MB/s transfer'
-        },
-        {
-          id: 'row-p-9',
-          code: 'FRM-MAT-1218',
-          name: 'Photo Frame 12x18 inch (Synthetic Matte Finish)',
-          category: 'Framing',
-          unit: 'Pcs',
-          costPrice: 750,
-          dealerPrice: 950,
-          retailPrice: 1200,
-          stockQty: 8,
-          marginPercent: 60.0,
-          stockValue: 9600,
-          location: 'Studio Wall Rack',
-          notes: 'Front Glass with Hanging Bracket'
-        },
-        {
-          id: 'row-p-10',
-          code: 'SRV-CCTV-INST',
-          name: 'CCTV Installation & Cabling Service (Per Point)',
-          category: 'Services',
-          unit: 'Job',
-          costPrice: 350,
-          dealerPrice: 600,
-          retailPrice: 800,
-          stockQty: 999,
-          marginPercent: 128.6,
-          stockValue: 799200,
-          location: 'On-Site Service',
-          notes: 'Includes conduit fitting & alignment'
-        }
-      ]
+      rows: []
     },
     {
       id: 'sheet-workers-staff',
@@ -337,68 +182,7 @@ export const INITIAL_SPREADSHEET_DATA: ShopSpreadsheetData = {
         { id: 'joiningDate', title: 'Joining Date (BS)', type: 'date', width: 120 },
         { id: 'notes', title: 'Specialization & Notes', type: 'text', width: 220 }
       ],
-      rows: [
-        {
-          id: 'row-w-1',
-          staffId: 'EMP-01',
-          name: 'Bikash Thapa',
-          role: 'Lead CCTV Technician',
-          phone: '9846054321',
-          salary: 28000,
-          dailyRate: 1100,
-          overtimeRate: 200,
-          emergencyContact: 'Father: 9806112233',
-          status: 'Active',
-          advanceTaken: 3000,
-          joiningDate: '2079-04-15',
-          notes: 'Expert in IP Camera, NVR Configuration & Optical Fiber'
-        },
-        {
-          id: 'row-w-2',
-          staffId: 'EMP-02',
-          name: 'Sushila Sharma',
-          role: 'Sales & Billing Officer',
-          phone: '9812345678',
-          salary: 22000,
-          dailyRate: 850,
-          overtimeRate: 150,
-          emergencyContact: 'Brother: 9846098765',
-          status: 'Active',
-          advanceTaken: 0,
-          joiningDate: '2080-01-10',
-          notes: 'Front desk billing, inventory stock management & customer support'
-        },
-        {
-          id: 'row-w-3',
-          staffId: 'EMP-03',
-          name: 'Anil Gurung',
-          role: 'Studio Photographer & Editor',
-          phone: '9865432109',
-          salary: 25000,
-          dailyRate: 950,
-          overtimeRate: 180,
-          emergencyContact: 'Mother: 9806543210',
-          status: 'Active',
-          advanceTaken: 1500,
-          joiningDate: '2080-08-01',
-          notes: 'Photoshop, photo frame designing, visa/MRP lab printing'
-        },
-        {
-          id: 'row-w-4',
-          staffId: 'EMP-04',
-          name: 'Kiran Pariyar',
-          role: 'CCTV Assistant & Wireman',
-          phone: '9806123456',
-          salary: 18000,
-          dailyRate: 700,
-          overtimeRate: 120,
-          emergencyContact: 'Uncle: 9846123987',
-          status: 'Active',
-          advanceTaken: 500,
-          joiningDate: '2081-02-15',
-          notes: 'On-site cabling, conduit pipe laying, ladder works & mounting'
-        }
-      ]
+      rows: []
     },
     {
       id: 'sheet-staff-attendance',
@@ -415,56 +199,7 @@ export const INITIAL_SPREADSHEET_DATA: ShopSpreadsheetData = {
         { id: 'taskSite', title: 'Site Work / Installation Job', type: 'text', width: 260 },
         { id: 'paymentStatus', title: 'Khata Status', type: 'badge', width: 110 }
       ],
-      rows: [
-        {
-          id: 'row-a-1',
-          dateBS: '2083-05-15',
-          workerName: 'Bikash Thapa',
-          dutyType: 'Full Day + Site',
-          hoursOvertime: 2,
-          dailyWage: 1500,
-          advanceDeduction: 500,
-          netPayable: 1000,
-          taskSite: 'Sharma Traders 4-Cam Hikvision System Installation',
-          paymentStatus: 'Paid'
-        },
-        {
-          id: 'row-a-2',
-          dateBS: '2083-05-15',
-          workerName: 'Kiran Pariyar',
-          dutyType: 'Full Day + Site',
-          hoursOvertime: 2,
-          dailyWage: 940,
-          advanceDeduction: 0,
-          netPayable: 940,
-          taskSite: 'Sharma Traders cabling & conduit mounting assistant',
-          paymentStatus: 'Paid'
-        },
-        {
-          id: 'row-a-3',
-          dateBS: '2083-05-15',
-          workerName: 'Sushila Sharma',
-          dutyType: 'Full Day (Shop)',
-          hoursOvertime: 0,
-          dailyWage: 850,
-          advanceDeduction: 0,
-          netPayable: 850,
-          taskSite: 'Counter Billing & Customer Invoicing Support',
-          paymentStatus: 'Pending'
-        },
-        {
-          id: 'row-a-4',
-          dateBS: '2083-05-15',
-          workerName: 'Anil Gurung',
-          dutyType: 'Full Day (Studio)',
-          hoursOvertime: 1,
-          dailyWage: 1130,
-          advanceDeduction: 200,
-          netPayable: 930,
-          taskSite: 'Urgent Visa Photo Processing & 16x24 Wooden Framing',
-          paymentStatus: 'Pending'
-        }
-      ]
+      rows: []
     }
   ]
 };
@@ -595,6 +330,7 @@ export async function createFullDatabaseSnapshot(): Promise<DatabaseSnapshot> {
   const invoices = await db.invoices.toArray();
   const customers = await db.customers.toArray();
   const catalog = await db.catalog.toArray();
+  const stockLogs = await db.stockLogs.toArray();
   const passwords = await db.passwords.toArray();
   const companyDetails = getSavedCompanyDetails();
   const spreadsheetData = getSavedSpreadsheetData();
@@ -607,6 +343,7 @@ export async function createFullDatabaseSnapshot(): Promise<DatabaseSnapshot> {
     invoices,
     customers,
     catalog,
+    stockLogs,
     passwords,
     spreadsheetData,
     backupSettings: companyDetails.backupSettings
@@ -627,11 +364,12 @@ export async function restoreDatabaseFromSnapshot(snapshot: DatabaseSnapshot, mo
   }
 
   if (mode === 'overwrite') {
-    await db.transaction('rw', db.invoices, db.customers, db.catalog, db.passwords, async () => {
+    await db.transaction('rw', db.invoices, db.customers, db.catalog, db.passwords, db.stockLogs, async () => {
       await db.invoices.clear();
       await db.customers.clear();
       await db.catalog.clear();
       await db.passwords.clear();
+      await db.stockLogs.clear();
 
       if (snapshot.invoices.length > 0) {
         await db.invoices.bulkAdd(snapshot.invoices);
@@ -642,13 +380,16 @@ export async function restoreDatabaseFromSnapshot(snapshot: DatabaseSnapshot, mo
       if (Array.isArray(snapshot.catalog) && snapshot.catalog.length > 0) {
         await db.catalog.bulkAdd(snapshot.catalog);
       }
+      if (Array.isArray(snapshot.stockLogs) && snapshot.stockLogs.length > 0) {
+        await db.stockLogs.bulkAdd(snapshot.stockLogs);
+      }
       if (Array.isArray(snapshot.passwords) && snapshot.passwords.length > 0) {
         await db.passwords.bulkAdd(snapshot.passwords);
       }
     });
   } else {
     // Merge mode: put items
-    await db.transaction('rw', db.invoices, db.customers, db.catalog, db.passwords, async () => {
+    await db.transaction('rw', db.invoices, db.customers, db.catalog, db.passwords, db.stockLogs, async () => {
       for (const inv of snapshot.invoices) {
         await db.invoices.put(inv);
       }
@@ -660,6 +401,11 @@ export async function restoreDatabaseFromSnapshot(snapshot: DatabaseSnapshot, mo
       if (Array.isArray(snapshot.catalog)) {
         for (const cat of snapshot.catalog) {
           await db.catalog.put(cat);
+        }
+      }
+      if (Array.isArray(snapshot.stockLogs)) {
+        for (const log of snapshot.stockLogs) {
+          await db.stockLogs.put(log);
         }
       }
       if (Array.isArray(snapshot.passwords)) {

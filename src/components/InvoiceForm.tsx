@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { 
   User, Phone, MapPin, Hash, CreditCard, 
   Plus, Save, Printer, RefreshCw, Layers, Search, 
-  Tag, Check, Copy, Smartphone, Trash2, X, ChevronDown, ChevronUp 
+  Tag, Check, Copy, Smartphone, Trash2, X, ChevronDown, ChevronUp,
+  Boxes 
 } from 'lucide-react';
 import { useInvoiceStore } from '../store/useInvoiceStore';
 import { LineItemRow } from './LineItemRow';
@@ -741,6 +742,17 @@ export const InvoiceForm: React.FC = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {/* Stock Database Quick Link */}
+            <button
+              type="button"
+              onClick={() => setActiveTab('stock')}
+              className="flex items-center space-x-1.5 bg-slate-950 hover:bg-emerald-950/40 text-emerald-400 hover:text-emerald-300 px-3 py-1 rounded-xl border border-emerald-500/30 text-[11px] font-bold transition-all shadow-sm"
+              title="Open Stock Database to check available quantities and add items"
+            >
+              <Boxes className="h-3.5 w-3.5" />
+              <span>Stock Database</span>
+            </button>
+
             {/* Quick Presets Toggle Switch */}
             <div className="flex items-center space-x-1.5 bg-slate-950 px-3 py-1 rounded-xl border border-slate-800">
               <span className="text-[11px] text-slate-400 font-medium">Quick Presets:</span>

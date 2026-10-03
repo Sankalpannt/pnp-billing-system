@@ -28,8 +28,23 @@ export const LineItemRow: React.FC<LineItemRowProps> = ({
     onUpdate(item.id, 'description', catItem.description);
     onUpdate(item.id, 'unit', catItem.unit);
     onUpdate(item.id, 'listPrice', catItem.price);
+    onUpdate(item.id, 'stockItemId', catItem.id);
+    if (catItem.code) {
+      onUpdate(item.id, 'code', catItem.code);
+    }
     setShowCatalogMenu(false);
   };
+
+  // Find linked or matching stock item
+  const matchedStockItem = catalog.find(c => 
+    (item.stockItemId && c.id === item.stockItemId) ||
+    (item.code && c.code && c.code.toLowerCase() === item.code.toLowerCase()) ||
+    (item.description && c.description.trim().toLowerCase() === item.description.trim().toLowerCase())
+  );
+
+  const isExceedingStock = matchedStockItem && 
+    matchedStockItem.trackStock !== false && 
+    item.qty > (matchedStockItem.stockQty ?? 0);
 
   return (
     <tr className="border-b border-slate-800 hover:bg-slate-800/40 transition-colors group">
@@ -50,29 +65,91 @@ export const LineItemRow: React.FC<LineItemRowProps> = ({
             }}
             onFocus={() => setShowCatalogMenu(true)}
             onBlur={() => setTimeout(() => setShowCatalogMenu(false), 200)}
-            placeholder="e.g. Wireless Mouse, HDMI Cable, 12V Adapter, Photo Print..."
+            placeholder="e.g. 2MP HD Camera, 4MP Bullet, 1TB HDD, HDMI Cable..."
             className="w-full bg-slate-900/80 border border-slate-700 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 transition-all font-sans"
           />
 
-          {/* Quick Catalog Suggestions Dropdown */}
+          {/* Matched Stock Pill under input */}
+          {matchedStockItem && matchedStockItem.trackStock !== false && (
+            <div className="flex items-center space-x-2 mt-1">
+              <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border flex items-center space-x-1 ${
+                (matchedStockItem.stockQty ?? 0) <= 0
+                  ? 'bg-rose-500/10 text-rose-400 border-rose-500/30'
+                  : (matchedStockItem.stockQty ?? 0) <= (matchedStockItem.minStockAlert ?? 3)
+                  ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                  : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+              }`}>
+                <span>📦 Stock:</span>
+                <span className="font-extrabold">{matchedStockItem.stockQty ?? 0} {matchedStockItem.unit}</span>
+                {matchedStockItem.location && (
+                  <span className="opacity-75 text-[9px] border-l border-slate-700 pl-1 ml-1">{matchedStockItem.location}</span>
+                )}
+              </span>
+
+              {isExceedingStock && (
+                <span className="text-[10px] font-bold text-rose-400 animate-pulse flex items-center space-x-1">
+                  <span>⚠️ Only {matchedStockItem.stockQty ?? 0} available!</span>
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Quick Catalog & Stock Suggestions Dropdown */}
           {showCatalogMenu && filteredCatalog.length > 0 && (
-            <div className="absolute left-0 top-full mt-1 w-full max-h-48 overflow-y-auto bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-30 divide-y divide-slate-700/50">
-              <div className="px-2 py-1 bg-slate-900/80 text-[10px] uppercase font-bold text-sky-400 tracking-wider">
-                Quick Catalog Presets
+            <div className="absolute left-0 top-full mt-1 w-full max-h-56 overflow-y-auto bg-slate-800 border border-slate-700 rounded-xl shadow-2xl z-30 divide-y divide-slate-700/50">
+              <div className="px-3 py-1.5 bg-slate-900/90 text-[10px] uppercase font-extrabold text-sky-400 tracking-wider flex items-center justify-between">
+                <span>Stock Inventory & Catalog Presets</span>
+                <span className="text-slate-400 font-mono text-[9px]">Click to Select</span>
               </div>
-              {filteredCatalog.map((cat) => (
-                <button
-                  key={cat.id}
-                  type="button"
-                  onMouseDown={() => handleSelectCatalog(cat)}
-                  className="w-full text-left px-3 py-1.5 hover:bg-sky-600/30 flex items-center justify-between transition-colors text-xs"
-                >
-                  <span className="text-slate-200 font-medium">{cat.description}</span>
-                  <span className="text-sky-400 font-mono text-[11px]">
-                    {formatNPR(cat.price)} / {cat.unit}
-                  </span>
-                </button>
-              ))}
+              {filteredCatalog.map((cat) => {
+                const isTracked = cat.trackStock !== false;
+                const stock = cat.stockQty ?? 0;
+                const isLow = isTracked && stock > 0 && stock <= (cat.minStockAlert ?? 3);
+                const isOut = isTracked && stock <= 0;
+
+                return (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    onMouseDown={() => handleSelectCatalog(cat)}
+                    className="w-full text-left px-3 py-2 hover:bg-sky-600/25 flex items-center justify-between transition-colors text-xs group/btn"
+                  >
+                    <div className="min-w-0 pr-2">
+                      <div className="flex items-center space-x-1.5">
+                        {cat.code && (
+                          <span className="text-[9px] font-mono font-bold px-1 rounded bg-slate-900 text-slate-400 border border-slate-700">
+                            {cat.code}
+                          </span>
+                        )}
+                        <span className="text-slate-200 font-medium group-hover/btn:text-white truncate">
+                          {cat.description}
+                        </span>
+                      </div>
+                      <div className="flex items-center space-x-2 mt-0.5">
+                        <span className="text-[10px] text-slate-400">{cat.category}</span>
+                        {isTracked && (
+                          <span className={`text-[9px] font-mono font-bold px-1.5 py-0.2 rounded ${
+                            isOut 
+                              ? 'bg-rose-500/20 text-rose-300' 
+                              : isLow 
+                              ? 'bg-amber-500/20 text-amber-300' 
+                              : 'bg-emerald-500/20 text-emerald-300'
+                          }`}>
+                            {isOut ? 'Out of stock' : `${stock} in stock`}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="text-right shrink-0">
+                      <span className="text-sky-400 font-mono font-bold text-xs">
+                        {formatNPR(cat.price)}
+                      </span>
+                      <span className="text-slate-400 text-[10px] block">/ {cat.unit}</span>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>

@@ -110,6 +110,22 @@ export interface ShopSpreadsheetData {
   activeSheetId: string;
 }
 
+export interface StockLog {
+  id: string;
+  itemId: string;
+  itemDescription: string;
+  itemCode?: string;
+  type: 'sale' | 'restock' | 'adjustment' | 'return' | 'initial';
+  changeQty: number; // e.g. -5 for sale, +10 for restock
+  previousQty: number;
+  newQty: number;
+  invoiceId?: string;
+  invoiceNumber?: string;
+  customerName?: string;
+  notes?: string;
+  timestamp: string;
+}
+
 export interface DatabaseSnapshot {
   version: string;
   appName: string;
@@ -119,6 +135,7 @@ export interface DatabaseSnapshot {
   invoices: Invoice[];
   customers: Customer[];
   catalog: CatalogItem[];
+  stockLogs?: StockLog[];
   passwords?: PasswordItem[];
   spreadsheetData?: ShopSpreadsheetData;
   backupSettings?: BackupSettings;
@@ -140,7 +157,16 @@ export interface CatalogItem {
   description: string;
   category: 'General Products' | 'Electronics' | 'Hardware' | 'Accessories' | 'CCTV & Security' | 'Photo & Print' | 'Studio Photo' | 'Framing' | 'Printing' | 'Event' | 'Services' | 'Other';
   unit: string; // Pcs, Copies, Sets, Pkt, Sq Ft, Hrs, Mtr, Job, Box, Packet, etc.
-  price: number;
+  price: number; // Selling / Retail Price
+  costPrice?: number; // Cost / Purchase Price
+  stockQty?: number; // Current in-stock quantity (e.g. 24)
+  minStockAlert?: number; // Low stock alert threshold (e.g. 3 or 5)
+  trackStock?: boolean; // Whether stock tracking is active for this item (default true for physical goods)
+  location?: string; // Shelf, Rack, Godown location e.g. "Rack A-1"
+  barcode?: string;
+  notes?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface LineItem {
@@ -154,6 +180,8 @@ export interface LineItem {
   discountValue: number;
   effectivePrice: number;
   amount: number;
+  stockItemId?: string; // Reference to stock database item ID
+  code?: string;        // Product SKU / Code
 }
 
 export interface Invoice {
@@ -189,6 +217,8 @@ export interface Invoice {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+  stockDeducted?: boolean;    // Flag indicating stock was deducted for this sale
+  stockDeductedAt?: string;  // Timestamp when stock deduction occurred
 }
 
 export interface InvoiceFilterOptions {

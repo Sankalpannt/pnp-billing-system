@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { 
   PlusCircle, Printer, History, Users, 
   Package, Settings, BarChart2, ShieldCheck, ShoppingCart, FileText, ChevronRight, Cloud, Calculator, Key, Smartphone, FileSpreadsheet,
-  Clock, Lock 
+  Clock, Lock, Boxes 
 } from 'lucide-react';
 import { useInvoiceStore } from '../store/useInvoiceStore';
 import { DocumentType } from '../types/invoice';
@@ -17,7 +17,7 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ onOpenScannerModal, isPhoneConnected }) => {
-  const { activeTab, setActiveTab, companyDetails, resetInvoiceForm, savedInvoices, passwords, spreadsheetData, isBackingUp, lockApp } = useInvoiceStore();
+  const { activeTab, setActiveTab, companyDetails, resetInvoiceForm, savedInvoices, passwords, spreadsheetData, isBackingUp, lockApp, catalog } = useInvoiceStore();
   const [showBackupModal, setShowBackupModal] = useState(false);
   const liveClock = useLiveClock();
 
@@ -26,16 +26,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenScannerModal, isPhoneCon
   const counterCount = savedInvoices.filter(i => i.docType === 'counter_sale').length;
   const pwCount = passwords?.length || 0;
   const excelRowCount = spreadsheetData?.sheets?.reduce((sum, s) => sum + s.rows.length, 0) || 0;
+  const lowStockCount = catalog?.filter(i => i.trackStock !== false && (Number(i.stockQty) || 0) <= (i.minStockAlert ?? 3)).length || 0;
 
   const isCloudSynced = Boolean(companyDetails.backupSettings?.localSyncFolderPath || companyDetails.backupSettings?.googleDriveConnected);
 
   const navItems: Array<{
-    id: 'create' | 'preview' | 'excel_store' | 'cctv_history' | 'studio_history' | 'counter_history' | 'history' | 'analytics' | 'customers' | 'catalog' | 'settings' | 'calculator' | 'passwords';
+    id: 'create' | 'stock' | 'preview' | 'excel_store' | 'cctv_history' | 'studio_history' | 'counter_history' | 'history' | 'analytics' | 'customers' | 'catalog' | 'settings' | 'calculator' | 'passwords';
     label: string;
     icon: any;
     badge: string | number | null;
   }> = [
     { id: 'create', label: 'Create Sale / Invoice', icon: PlusCircle, badge: null },
+    { id: 'stock', label: 'Stock Database (गोदाम)', icon: Boxes, badge: lowStockCount > 0 ? `${lowStockCount} Low` : `${catalog?.length || 0}` },
     { id: 'excel_store', label: 'Shop Excel & Price Store', icon: FileSpreadsheet, badge: excelRowCount > 0 ? excelRowCount : 'Excel' },
     { id: 'preview', label: 'Print Preview (A4)', icon: Printer, badge: 'A4' },
     { id: 'calculator', label: 'Billing Calculator', icon: Calculator, badge: 'Calc' },

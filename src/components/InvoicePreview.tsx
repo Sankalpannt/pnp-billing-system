@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Printer, ArrowLeft, Sliders, RotateCcw, Move, QrCode, Maximize2 } from 'lucide-react';
+import { Printer, ArrowLeft, Sliders, RotateCcw, Move, QrCode, Maximize2, PackageCheck } from 'lucide-react';
 import { useInvoiceStore } from '../store/useInvoiceStore';
 import { formatNPR } from '../utils/formatters';
 import { formatBSDate, convertADToBS, convertBSToAD } from '../utils/nepaliDate';
@@ -8,7 +8,7 @@ import pnpIcon from '../assets/pnp_icon_transparent.png';
 import { triggerAppPrint } from '../utils/printHelper';
 
 export const InvoicePreview: React.FC = () => {
-  const { currentInvoice, companyDetails, setActiveTab, setShowDiscount } = useInvoiceStore();
+  const { currentInvoice, companyDetails, setActiveTab, setShowDiscount, deductStockForInvoice } = useInvoiceStore();
   const [copyType, setCopyType] = useState<'customer' | 'office'>('customer');
   const [densityMode, setDensityMode] = useState<'auto' | 'compact' | 'comfortable'>('auto');
   const [showBuyerPan, setShowBuyerPan] = useState<boolean>(() => {
@@ -318,13 +318,23 @@ export const InvoicePreview: React.FC = () => {
     } catch {}
   };
 
-  // Auto trigger print dialog when preview opens
+  // Auto trigger print dialog when preview opens & ensure stock deduction
   React.useEffect(() => {
+    if (!currentInvoice.stockDeducted) {
+      deductStockForInvoice(currentInvoice);
+    }
     const timer = setTimeout(() => {
       triggerAppPrint();
     }, 400);
     return () => clearTimeout(timer);
   }, []);
+
+  const handlePrintClick = async () => {
+    if (!currentInvoice.stockDeducted) {
+      await deductStockForInvoice(currentInvoice);
+    }
+    triggerAppPrint();
+  };
 
   const isVatInvoice = currentInvoice.taxMode !== 'exempted';
   const showDiscountColumn = currentInvoice.showDiscount !== false;
@@ -545,10 +555,30 @@ export const InvoicePreview: React.FC = () => {
           </span>
         </div>
 
-        {/* Print Button */}
+        {/* Print & Stock Actions */}
         <div className="flex items-center space-x-2">
+          {/* Stock Deduction Status Pill */}
           <button
-            onClick={() => triggerAppPrint()}
+            type="button"
+            onClick={() => setActiveTab('stock')}
+            className={`flex items-center space-x-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition-all ${
+              currentInvoice.stockDeducted
+                ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20'
+                : 'bg-amber-500/10 text-amber-300 border-amber-500/30 hover:bg-amber-500/20'
+            }`}
+            title="Click to view Stock Inventory & Sales Logs"
+          >
+            <PackageCheck className="h-4 w-4 text-emerald-400" />
+            <span className="hidden sm:inline">
+              {currentInvoice.stockDeducted ? 'Stock Deducted ✓' : 'Deducting Stock...'}
+            </span>
+            <span className="text-[10px] font-mono opacity-80">
+              ({currentInvoice.items.reduce((sum, item) => sum + (Number(item.qty) || 0), 0)} items)
+            </span>
+          </button>
+
+          <button
+            onClick={handlePrintClick}
             className="flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white text-xs font-extrabold shadow-lg shadow-sky-500/30 transition-all animate-pulse"
           >
             <Printer className="h-4 w-4" />

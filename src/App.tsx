@@ -6,6 +6,7 @@ import { InvoicePreview } from './components/InvoicePreview';
 import { InvoiceHistory } from './components/InvoiceHistory';
 import { CustomerDirectory } from './components/CustomerDirectory';
 import { ItemCatalogModal } from './components/ItemCatalogModal';
+import { StockDatabaseSection } from './components/StockDatabaseSection';
 import { CompanySettings } from './components/CompanySettings';
 import { SalesAnalytics } from './components/SalesAnalytics';
 import { CalculatorSection } from './components/CalculatorSection';
@@ -80,6 +81,7 @@ export const App: React.FC = () => {
       {/* Main Content Area */}
       <div className="flex-1 min-h-screen overflow-y-auto p-6 lg:p-8 print:p-0 print:m-0 print:min-h-0 print:overflow-visible print:w-full print:block">
         {activeTab === 'create' && <InvoiceForm />}
+        {activeTab === 'stock' && <StockDatabaseSection />}
         {activeTab === 'preview' && <InvoicePreview />}
         {activeTab === 'excel_store' && <ExcelPriceWorkerStore />}
         {activeTab === 'calculator' && <CalculatorSection />}

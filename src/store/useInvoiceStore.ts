@@ -1,10 +1,12 @@
 import { create } from 'zustand';
 import { 
   Invoice, LineItem, Customer, CatalogItem, PasswordItem, CompanyDetails, TaxMode, PaymentStatus, PaymentMethod, DocumentType, 
-  BackupSettings, BackupRecord, DatabaseSnapshot, ShopSpreadsheetData, ExcelSheet, ExcelColumn, ExcelRow, SecuritySettings 
+  BackupSettings, BackupRecord, DatabaseSnapshot, ShopSpreadsheetData, ExcelSheet, ExcelColumn, ExcelRow, SecuritySettings,
+  StockLog
 } from '../types/invoice';
 import { 
   db, getSavedCompanyDetails, saveCompanyDetails, INITIAL_CATALOG, INITIAL_CUSTOMERS, INITIAL_PASSWORDS,
+  DEMO_CCTV_STARTER_ITEMS,
   checkAndMigrateLegacyDatabase, restoreDatabaseFromSnapshot, exportDatabaseToFile,
   getSavedSpreadsheetData, saveSpreadsheetData 
 } from '../utils/storage';
@@ -21,9 +23,10 @@ interface InvoiceState {
   savedInvoices: Invoice[];
   customers: Customer[];
   catalog: CatalogItem[];
+  stockLogs: StockLog[];
   passwords: PasswordItem[];
   spreadsheetData: ShopSpreadsheetData;
-  activeTab: 'create' | 'preview' | 'cctv_history' | 'studio_history' | 'counter_history' | 'history' | 'customers' | 'catalog' | 'settings' | 'analytics' | 'backup' | 'calculator' | 'passwords' | 'excel_store';
+  activeTab: 'create' | 'preview' | 'stock' | 'cctv_history' | 'studio_history' | 'counter_history' | 'history' | 'customers' | 'catalog' | 'settings' | 'analytics' | 'backup' | 'calculator' | 'passwords' | 'excel_store';
   isEditing: boolean;
   editingInvoiceId: string | null;
   isLoading: boolean;
@@ -34,7 +37,7 @@ interface InvoiceState {
 
   // Actions
   initializeStore: () => Promise<void>;
-  setActiveTab: (tab: 'create' | 'preview' | 'cctv_history' | 'studio_history' | 'counter_history' | 'history' | 'customers' | 'catalog' | 'settings' | 'analytics' | 'backup' | 'calculator' | 'passwords' | 'excel_store') => void;
+  setActiveTab: (tab: 'create' | 'preview' | 'stock' | 'cctv_history' | 'studio_history' | 'counter_history' | 'history' | 'customers' | 'catalog' | 'settings' | 'analytics' | 'backup' | 'calculator' | 'passwords' | 'excel_store') => void;
   updateCompanyDetails: (details: Partial<CompanyDetails>) => void;
   updateBackupSettings: (settings: Partial<BackupSettings>) => void;
   updateSecuritySettings: (settings: Partial<SecuritySettings>) => void;
@@ -73,11 +76,25 @@ interface InvoiceState {
   deleteInvoice: (id: string) => Promise<void>;
   resetInvoiceForm: (docType?: DocumentType) => void;
 
+  // Stock Inventory Actions
+  deductStockForInvoice: (invoiceOrId?: string | Invoice) => Promise<{ success: boolean; deductedItems: Array<{ name: string; qty: number; remaining: number }> }>;
+  restoreStockForInvoice: (invoice: Invoice) => Promise<void>;
+  restockItem: (itemId: string, addQty: number, notes?: string) => Promise<void>;
+  adjustStockItem: (itemId: string, newQty: number, reason?: string) => Promise<void>;
+  deleteStockLog: (id: string) => Promise<void>;
+  clearStockLogs: () => Promise<void>;
+
   // Catalog & Customer Directory Actions
   addCustomer: (customer: Omit<Customer, 'id'>) => Promise<Customer>;
   deleteCustomer: (id: string) => Promise<void>;
+  clearCustomers: () => Promise<void>;
   addCatalogItem: (item: Omit<CatalogItem, 'id'>) => Promise<CatalogItem>;
+  bulkAddCatalogItems: (items: Array<Omit<CatalogItem, 'id'>>) => Promise<CatalogItem[]>;
+  updateCatalogItem: (id: string, updates: Partial<CatalogItem>) => Promise<void>;
   deleteCatalogItem: (id: string) => Promise<void>;
+  clearAllCatalogItems: () => Promise<void>;
+  clearAllDemoData: () => Promise<void>;
+  loadCctvStarterPack: () => Promise<void>;
 
   // Password Vault Actions
   addPassword: (item: Omit<PasswordItem, 'id' | 'createdAt' | 'updatedAt'>) => Promise<PasswordItem>;
@@ -167,6 +184,7 @@ export const useInvoiceStore = create<InvoiceState>((set, get) => ({
   savedInvoices: [],
   customers: [],
   catalog: [],
+  stockLogs: [],
   passwords: [],
   spreadsheetData: getSavedSpreadsheetData(),
   activeTab: 'create',
@@ -229,8 +247,61 @@ export const useInvoiceStore = create<InvoiceState>((set, get) => ({
 
       const invoices = await db.invoices.orderBy('createdAt').reverse().toArray();
       const customers = await db.customers.toArray();
-      const catalog = await db.catalog.toArray();
+      let catalog = await db.catalog.toArray();
       const passwords = await db.passwords.toArray();
+      let stockLogs: StockLog[] = [];
+      try {
+        if (db.stockLogs) {
+          stockLogs = await db.stockLogs.orderBy('timestamp').reverse().toArray();
+        }
+      } catch (err) {
+        console.warn('Error loading stock logs:', err);
+      }
+
+      // Self-heal / migrate any catalog items missing stock tracking
+      let needsCatalogUpdate = false;
+      const updatedCatalog = catalog.map(item => {
+        let changed = false;
+        const copy = { ...item };
+        const matchInitial = INITIAL_CATALOG.find(i => i.id === copy.id || i.description.trim().toLowerCase() === copy.description.trim().toLowerCase());
+        
+        if (copy.trackStock === undefined) {
+          copy.trackStock = matchInitial ? matchInitial.trackStock !== false : copy.category !== 'Services';
+          changed = true;
+        }
+        if (copy.stockQty === undefined) {
+          copy.stockQty = matchInitial?.stockQty ?? (copy.trackStock ? 20 : 0);
+          changed = true;
+        }
+        if (copy.minStockAlert === undefined) {
+          copy.minStockAlert = matchInitial?.minStockAlert ?? (copy.trackStock ? 3 : 0);
+          changed = true;
+        }
+        if (copy.costPrice === undefined) {
+          copy.costPrice = matchInitial?.costPrice ?? Math.round(copy.price * 0.75);
+          changed = true;
+        }
+        if (!copy.code) {
+          copy.code = matchInitial?.code || ('SKU-' + (copy.id || Math.random().toString(36).substring(2, 7)).toUpperCase());
+          changed = true;
+        }
+        if (!copy.location && matchInitial?.location) {
+          copy.location = matchInitial.location;
+          changed = true;
+        }
+        if (changed) needsCatalogUpdate = true;
+        return copy;
+      });
+
+      if (needsCatalogUpdate) {
+        try {
+          await db.catalog.bulkPut(updatedCatalog);
+          catalog = updatedCatalog;
+        } catch (err) {
+          console.warn('Failed to update catalog with stock fields:', err);
+        }
+      }
+
       const spreadsheetData = getSavedSpreadsheetData();
       let companyDetails = getSavedCompanyDetails();
 
@@ -245,6 +316,7 @@ export const useInvoiceStore = create<InvoiceState>((set, get) => ({
         savedInvoices: invoices,
         customers,
         catalog,
+        stockLogs,
         passwords,
         spreadsheetData,
         currentInvoice: initialInvoice,
@@ -668,6 +740,15 @@ export const useInvoiceStore = create<InvoiceState>((set, get) => ({
 
       await db.invoices.put(invoiceToSave);
 
+      // Auto-deduct stock for this invoice if not yet deducted
+      if (!invoiceToSave.stockDeducted) {
+        try {
+          await get().deductStockForInvoice(invoiceToSave);
+        } catch (stockErr) {
+          console.warn('Stock auto-deduction error:', stockErr);
+        }
+      }
+
       // Auto-save customer if party name and valid phone exist
       if (inv.customerName?.trim() && inv.customerPhone?.trim()) {
         try {
@@ -752,7 +833,9 @@ export const useInvoiceStore = create<InvoiceState>((set, get) => ({
       dateBS,
       dateAD,
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
+      stockDeducted: false,
+      stockDeductedAt: undefined
     };
 
     set({
@@ -764,6 +847,15 @@ export const useInvoiceStore = create<InvoiceState>((set, get) => ({
   },
 
   deleteInvoice: async (id) => {
+    const inv = await db.invoices.get(id);
+    if (inv && inv.stockDeducted) {
+      try {
+        await get().restoreStockForInvoice(inv);
+      } catch (stockErr) {
+        console.warn('Stock restoration on delete error:', stockErr);
+      }
+    }
+
     await db.invoices.delete(id);
     const updatedInvoices = await db.invoices.orderBy('createdAt').reverse().toArray();
     set({ savedInvoices: updatedInvoices });
@@ -788,6 +880,318 @@ export const useInvoiceStore = create<InvoiceState>((set, get) => ({
     });
   },
 
+  // Stock Inventory Actions
+  deductStockForInvoice: async (targetInvoice?: string | Invoice) => {
+    try {
+      const invoice = typeof targetInvoice === 'string'
+        ? await db.invoices.get(targetInvoice)
+        : (targetInvoice || get().currentInvoice);
+
+      if (!invoice || !invoice.items || invoice.items.length === 0) {
+        return { success: false, deductedItems: [] };
+      }
+
+      // Prevent duplicate deduction
+      if (invoice.stockDeducted) {
+        return { success: true, deductedItems: [] };
+      }
+
+      const currentCatalog = [...get().catalog];
+      const deductedItems: Array<{ name: string; qty: number; remaining: number }> = [];
+      const newLogs: StockLog[] = [];
+      const now = new Date().toISOString();
+
+      for (const lineItem of invoice.items) {
+        const qtyToMinus = Number(lineItem.qty) || 0;
+        if (qtyToMinus <= 0) continue;
+
+        // Match catalog item: 1. stockItemId, 2. code, 3. exact/fuzzy description
+        let catIndex = -1;
+        if (lineItem.stockItemId) {
+          catIndex = currentCatalog.findIndex(c => c.id === lineItem.stockItemId);
+        }
+        if (catIndex === -1 && lineItem.code) {
+          catIndex = currentCatalog.findIndex(c => c.code && c.code.toLowerCase() === lineItem.code?.toLowerCase());
+        }
+        if (catIndex === -1 && lineItem.description) {
+          const descTrimmed = lineItem.description.trim().toLowerCase();
+          catIndex = currentCatalog.findIndex(c => c.description.trim().toLowerCase() === descTrimmed);
+          if (catIndex === -1) {
+            catIndex = currentCatalog.findIndex(c => 
+              descTrimmed.includes(c.description.trim().toLowerCase()) || 
+              c.description.trim().toLowerCase().includes(descTrimmed)
+            );
+          }
+        }
+
+        if (catIndex !== -1) {
+          const item = currentCatalog[catIndex];
+          if (item.trackStock === false) continue; // Services or untracked items
+
+          const prevQty = Number(item.stockQty) || 0;
+          const newQty = Math.max(0, prevQty - qtyToMinus);
+
+          currentCatalog[catIndex] = {
+            ...item,
+            stockQty: newQty,
+            updatedAt: now
+          };
+
+          deductedItems.push({
+            name: item.description,
+            qty: qtyToMinus,
+            remaining: newQty
+          });
+
+          newLogs.push({
+            id: 'log-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+            itemId: item.id,
+            itemDescription: item.description,
+            itemCode: item.code,
+            type: 'sale',
+            changeQty: -qtyToMinus,
+            previousQty: prevQty,
+            newQty: newQty,
+            invoiceId: invoice.id,
+            invoiceNumber: invoice.invoiceNumber,
+            customerName: invoice.customerName || 'Walk-in Customer',
+            notes: `Bill #${invoice.invoiceNumber}: Sold ${qtyToMinus} ${item.unit || 'Pcs'}`,
+            timestamp: now
+          });
+        }
+      }
+
+      if (deductedItems.length > 0) {
+        await db.catalog.bulkPut(currentCatalog);
+      }
+
+      if (newLogs.length > 0) {
+        await db.stockLogs.bulkPut(newLogs);
+      }
+
+      // Synchronize with spreadsheet sheet-price-store if active
+      const spreadsheetData = getSavedSpreadsheetData();
+      let spreadsheetChanged = false;
+      const priceSheet = spreadsheetData.sheets.find(s => s.id === 'sheet-price-store' || s.icon === 'price');
+      if (priceSheet && deductedItems.length > 0) {
+        priceSheet.rows = priceSheet.rows.map(row => {
+          const matchingDed = deductedItems.find(d => 
+            (row.name && row.name.toLowerCase() === d.name.toLowerCase()) ||
+            (row.code && currentCatalog.some(c => c.code === row.code && c.description === d.name))
+          );
+          if (matchingDed) {
+            spreadsheetChanged = true;
+            const updatedStock = Math.max(0, (Number(row.stockQty) || 0) - matchingDed.qty);
+            const retail = Number(row.retailPrice) || 0;
+            return {
+              ...row,
+              stockQty: updatedStock,
+              stockValue: Math.round((retail * updatedStock) * 100) / 100
+            };
+          }
+          return row;
+        });
+        if (spreadsheetChanged) {
+          saveSpreadsheetData(spreadsheetData);
+        }
+      }
+
+      // Mark invoice as stock deducted
+      const updatedInvoice: Invoice = {
+        ...invoice,
+        stockDeducted: true,
+        stockDeductedAt: now
+      };
+      await db.invoices.put(updatedInvoice);
+
+      const allLogs = await db.stockLogs.orderBy('timestamp').reverse().toArray();
+      const allInvoices = await db.invoices.orderBy('createdAt').reverse().toArray();
+
+      set(state => ({
+        catalog: currentCatalog,
+        stockLogs: allLogs,
+        savedInvoices: allInvoices,
+        spreadsheetData: spreadsheetChanged ? spreadsheetData : state.spreadsheetData,
+        currentInvoice: state.currentInvoice.id === invoice.id ? updatedInvoice : state.currentInvoice
+      }));
+
+      return { success: true, deductedItems };
+    } catch (err) {
+      console.error('Failed to deduct stock:', err);
+      return { success: false, deductedItems: [] };
+    }
+  },
+
+  restoreStockForInvoice: async (invoice: Invoice) => {
+    try {
+      if (!invoice || !invoice.stockDeducted || !invoice.items || invoice.items.length === 0) {
+        return;
+      }
+
+      const currentCatalog = [...get().catalog];
+      const now = new Date().toISOString();
+      const newLogs: StockLog[] = [];
+
+      for (const lineItem of invoice.items) {
+        const qtyToReturn = Number(lineItem.qty) || 0;
+        if (qtyToReturn <= 0) continue;
+
+        let catIndex = -1;
+        if (lineItem.stockItemId) {
+          catIndex = currentCatalog.findIndex(c => c.id === lineItem.stockItemId);
+        }
+        if (catIndex === -1 && lineItem.code) {
+          catIndex = currentCatalog.findIndex(c => c.code && c.code.toLowerCase() === lineItem.code?.toLowerCase());
+        }
+        if (catIndex === -1 && lineItem.description) {
+          const descTrimmed = lineItem.description.trim().toLowerCase();
+          catIndex = currentCatalog.findIndex(c => c.description.trim().toLowerCase() === descTrimmed);
+        }
+
+        if (catIndex !== -1) {
+          const item = currentCatalog[catIndex];
+          if (item.trackStock === false) continue;
+
+          const prevQty = Number(item.stockQty) || 0;
+          const newQty = prevQty + qtyToReturn;
+
+          currentCatalog[catIndex] = {
+            ...item,
+            stockQty: newQty,
+            updatedAt: now
+          };
+
+          newLogs.push({
+            id: 'log-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+            itemId: item.id,
+            itemDescription: item.description,
+            itemCode: item.code,
+            type: 'return',
+            changeQty: qtyToReturn,
+            previousQty: prevQty,
+            newQty: newQty,
+            invoiceId: invoice.id,
+            invoiceNumber: invoice.invoiceNumber,
+            customerName: invoice.customerName,
+            notes: `Returned +${qtyToReturn} ${item.unit || 'Pcs'} due to Bill #${invoice.invoiceNumber} cancellation`,
+            timestamp: now
+          });
+        }
+      }
+
+      if (newLogs.length > 0) {
+        await db.catalog.bulkPut(currentCatalog);
+        await db.stockLogs.bulkPut(newLogs);
+        const allLogs = await db.stockLogs.orderBy('timestamp').reverse().toArray();
+        set({ catalog: currentCatalog, stockLogs: allLogs });
+      }
+    } catch (err) {
+      console.error('Failed to restore stock:', err);
+    }
+  },
+
+  restockItem: async (itemId: string, addQty: number, notes?: string) => {
+    try {
+      const item = get().catalog.find(c => c.id === itemId);
+      if (!item) return;
+
+      const prevQty = Number(item.stockQty) || 0;
+      const newQty = prevQty + addQty;
+      const now = new Date().toISOString();
+
+      const updatedItem: CatalogItem = {
+        ...item,
+        stockQty: newQty,
+        updatedAt: now
+      };
+
+      await db.catalog.put(updatedItem);
+
+      const log: StockLog = {
+        id: 'log-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+        itemId: item.id,
+        itemDescription: item.description,
+        itemCode: item.code,
+        type: 'restock',
+        changeQty: addQty,
+        previousQty: prevQty,
+        newQty: newQty,
+        notes: notes || `Restocked +${addQty} ${item.unit}`,
+        timestamp: now
+      };
+
+      await db.stockLogs.put(log);
+
+      const updatedCatalog = await db.catalog.toArray();
+      const updatedLogs = await db.stockLogs.orderBy('timestamp').reverse().toArray();
+
+      set({
+        catalog: updatedCatalog,
+        stockLogs: updatedLogs
+      });
+    } catch (err) {
+      console.error('Failed to restock item:', err);
+      throw err;
+    }
+  },
+
+  adjustStockItem: async (itemId: string, newQty: number, reason?: string) => {
+    try {
+      const item = get().catalog.find(c => c.id === itemId);
+      if (!item) return;
+
+      const prevQty = Number(item.stockQty) || 0;
+      const diff = newQty - prevQty;
+      const now = new Date().toISOString();
+
+      const updatedItem: CatalogItem = {
+        ...item,
+        stockQty: Math.max(0, newQty),
+        updatedAt: now
+      };
+
+      await db.catalog.put(updatedItem);
+
+      const log: StockLog = {
+        id: 'log-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+        itemId: item.id,
+        itemDescription: item.description,
+        itemCode: item.code,
+        type: 'adjustment',
+        changeQty: diff,
+        previousQty: prevQty,
+        newQty: Math.max(0, newQty),
+        notes: reason || `Inventory count adjustment from ${prevQty} to ${newQty}`,
+        timestamp: now
+      };
+
+      await db.stockLogs.put(log);
+
+      const updatedCatalog = await db.catalog.toArray();
+      const updatedLogs = await db.stockLogs.orderBy('timestamp').reverse().toArray();
+
+      set({
+        catalog: updatedCatalog,
+        stockLogs: updatedLogs
+      });
+    } catch (err) {
+      console.error('Failed to adjust stock item:', err);
+      throw err;
+    }
+  },
+
+  deleteStockLog: async (id: string) => {
+    await db.stockLogs.delete(id);
+    const stockLogs = await db.stockLogs.orderBy('timestamp').reverse().toArray();
+    set({ stockLogs });
+  },
+
+  clearStockLogs: async () => {
+    await db.stockLogs.clear();
+    set({ stockLogs: [] });
+  },
+
+  // Catalog & Customer Directory Actions
   addCustomer: async (customerData) => {
     const newCust: Customer = {
       ...customerData,
@@ -806,21 +1210,191 @@ export const useInvoiceStore = create<InvoiceState>((set, get) => ({
     set({ customers });
   },
 
+  clearCustomers: async () => {
+    await db.customers.clear();
+    set({ customers: [] });
+  },
+
   addCatalogItem: async (itemData) => {
+    const now = new Date().toISOString();
     const newItem: CatalogItem = {
       ...itemData,
-      id: 'cat-' + Date.now()
+      id: 'cat-' + Date.now(),
+      stockQty: itemData.stockQty ?? 0,
+      trackStock: itemData.trackStock ?? (itemData.category !== 'Services'),
+      createdAt: now,
+      updatedAt: now
     };
     await db.catalog.add(newItem);
+
+    if (Number(newItem.stockQty) > 0 && newItem.trackStock !== false) {
+      const log: StockLog = {
+        id: 'log-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+        itemId: newItem.id,
+        itemDescription: newItem.description,
+        itemCode: newItem.code,
+        type: 'initial' as any,
+        changeQty: Number(newItem.stockQty),
+        previousQty: 0,
+        newQty: Number(newItem.stockQty),
+        notes: `Initial stock entered for ${newItem.description}`,
+        timestamp: now
+      };
+      await db.stockLogs.put(log);
+    }
+
     const catalog = await db.catalog.toArray();
-    set({ catalog });
+    const stockLogs = await db.stockLogs.orderBy('timestamp').reverse().toArray();
+    set({ catalog, stockLogs });
     return newItem;
+  },
+
+  updateCatalogItem: async (id: string, updates: Partial<CatalogItem>) => {
+    try {
+      const existing = await db.catalog.get(id);
+      if (!existing) return;
+
+      const updated: CatalogItem = {
+        ...existing,
+        ...updates,
+        updatedAt: new Date().toISOString()
+      };
+
+      await db.catalog.put(updated);
+      const catalog = await db.catalog.toArray();
+      set({ catalog });
+    } catch (err) {
+      console.error('Failed to update catalog item:', err);
+      throw err;
+    }
   },
 
   deleteCatalogItem: async (id) => {
     await db.catalog.delete(id);
     const catalog = await db.catalog.toArray();
     set({ catalog });
+  },
+
+  bulkAddCatalogItems: async (itemsData) => {
+    const now = new Date().toISOString();
+    const newItems: CatalogItem[] = itemsData.map((item, idx) => ({
+      ...item,
+      id: 'cat-' + Date.now() + '-' + idx + '-' + Math.random().toString(36).substring(2, 6),
+      stockQty: Number(item.stockQty) || 0,
+      costPrice: Number(item.costPrice) || 0,
+      price: Number(item.price) || 0,
+      minStockAlert: item.minStockAlert !== undefined ? Number(item.minStockAlert) : 3,
+      trackStock: item.trackStock ?? (item.category !== 'Services'),
+      createdAt: now,
+      updatedAt: now
+    }));
+
+    if (newItems.length > 0) {
+      await db.catalog.bulkAdd(newItems);
+
+      const logs: StockLog[] = [];
+      newItems.forEach((item, idx) => {
+        if (Number(item.stockQty) > 0 && item.trackStock !== false) {
+          logs.push({
+            id: 'log-' + Date.now() + '-' + idx + '-' + Math.random().toString(36).substring(2, 6),
+            itemId: item.id,
+            itemDescription: item.description,
+            itemCode: item.code,
+            type: 'initial' as any,
+            changeQty: Number(item.stockQty),
+            previousQty: 0,
+            newQty: Number(item.stockQty),
+            notes: `Inventory batch added / imported (${item.description})`,
+            timestamp: now
+          });
+        }
+      });
+
+      if (logs.length > 0 && db.stockLogs) {
+        await db.stockLogs.bulkPut(logs);
+      }
+    }
+
+    const catalog = await db.catalog.toArray();
+    let stockLogs: StockLog[] = [];
+    if (db.stockLogs) {
+      stockLogs = await db.stockLogs.orderBy('timestamp').reverse().toArray();
+    }
+    set({ catalog, stockLogs });
+    return newItems;
+  },
+
+  clearAllCatalogItems: async () => {
+    await db.catalog.clear();
+    if (db.stockLogs) {
+      await db.stockLogs.clear();
+    }
+    set({ catalog: [], stockLogs: [] });
+  },
+
+  clearAllDemoData: async () => {
+    await db.catalog.clear();
+    if (db.stockLogs) {
+      await db.stockLogs.clear();
+    }
+    await db.customers.clear();
+
+    const currentSpreadsheet = get().spreadsheetData;
+    if (currentSpreadsheet) {
+      const cleanedSheets = currentSpreadsheet.sheets.map(sheet => ({
+        ...sheet,
+        rows: []
+      }));
+      const cleanedData: ShopSpreadsheetData = {
+        ...currentSpreadsheet,
+        sheets: cleanedSheets
+      };
+      saveSpreadsheetData(cleanedData);
+      set({ spreadsheetData: cleanedData });
+    }
+
+    set({ catalog: [], stockLogs: [], customers: [] });
+  },
+
+  loadCctvStarterPack: async () => {
+    const now = new Date().toISOString();
+    const starterItems: CatalogItem[] = DEMO_CCTV_STARTER_ITEMS.map((item, idx) => ({
+      ...item,
+      id: 'cat-starter-' + Date.now() + '-' + idx,
+      createdAt: now,
+      updatedAt: now
+    }));
+
+    await db.catalog.bulkPut(starterItems);
+
+    const logs: StockLog[] = [];
+    starterItems.forEach((item, idx) => {
+      if (Number(item.stockQty) > 0 && item.trackStock !== false) {
+        logs.push({
+          id: 'log-start-' + Date.now() + '-' + idx,
+          itemId: item.id,
+          itemDescription: item.description,
+          itemCode: item.code,
+          type: 'initial' as any,
+          changeQty: Number(item.stockQty),
+          previousQty: 0,
+          newQty: Number(item.stockQty),
+          notes: `Starter pack loaded: ${item.description}`,
+          timestamp: now
+        });
+      }
+    });
+
+    if (logs.length > 0 && db.stockLogs) {
+      await db.stockLogs.bulkPut(logs);
+    }
+
+    const catalog = await db.catalog.toArray();
+    let stockLogs: StockLog[] = [];
+    if (db.stockLogs) {
+      stockLogs = await db.stockLogs.orderBy('timestamp').reverse().toArray();
+    }
+    set({ catalog, stockLogs });
   },
 
   // Password Vault Actions
@@ -1156,10 +1730,12 @@ export const useInvoiceStore = create<InvoiceState>((set, get) => ({
     const desc = row.name || row.description || row.col_a || 'Item from Price Store';
     const price = Number(row.retailPrice) || Number(row.price) || Number(row.dealerPrice) || Number(row.col_d) || 0;
     const unit = row.unit || 'Pcs';
+    const code = row.code || '';
     get().addLineItem({
       description: desc,
       unit: unit,
       listPrice: price,
+      code: code,
       qty: 1
     });
     get().setActiveTab('create');
