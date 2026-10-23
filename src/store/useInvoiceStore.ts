@@ -74,6 +74,7 @@ interface InvoiceState {
   viewInvoicePreview: (invoice: Invoice) => void;
   duplicateInvoice: (id: string) => Promise<void>;
   deleteInvoice: (id: string) => Promise<void>;
+  updateInvoiceDate: (id: string, dateBS: string, dateAD: string) => Promise<void>;
   resetInvoiceForm: (docType?: DocumentType) => void;
 
   // Stock Inventory Actions
@@ -862,6 +863,24 @@ export const useInvoiceStore = create<InvoiceState>((set, get) => ({
 
     // Automated background backup after deletion
     performAutomaticBackup('Invoice Deleted').then(() => {
+      set({ backupHistory: getBackupHistory(), companyDetails: getSavedCompanyDetails() });
+    }).catch(() => {});
+  },
+
+  updateInvoiceDate: async (id, dateBS, dateAD) => {
+    const existing = await db.invoices.get(id);
+    if (!existing) return;
+    const updated: Invoice = {
+      ...existing,
+      dateBS,
+      dateAD,
+      updatedAt: new Date().toISOString()
+    };
+    await db.invoices.put(updated);
+    const updatedInvoices = await db.invoices.orderBy('createdAt').reverse().toArray();
+    set({ savedInvoices: updatedInvoices });
+    // Automated background backup after date update
+    performAutomaticBackup('Invoice Date Updated').then(() => {
       set({ backupHistory: getBackupHistory(), companyDetails: getSavedCompanyDetails() });
     }).catch(() => {});
   },

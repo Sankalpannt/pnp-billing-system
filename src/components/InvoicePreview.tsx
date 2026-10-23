@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { Printer, ArrowLeft, Sliders, RotateCcw, Move, QrCode, Maximize2, PackageCheck } from 'lucide-react';
+import { Printer, ArrowLeft, Sliders, RotateCcw, Move, QrCode, Maximize2, PackageCheck, CalendarClock, X, RefreshCw } from 'lucide-react';
 import { useInvoiceStore } from '../store/useInvoiceStore';
 import { formatNPR } from '../utils/formatters';
-import { formatBSDate, convertADToBS, convertBSToAD } from '../utils/nepaliDate';
+import { formatBSDate, convertADToBS, convertBSToAD, parseBSDate, getTodayDates } from '../utils/nepaliDate';
 import { BrandTitle } from './BrandTitle';
 import pnpIcon from '../assets/pnp_icon_transparent.png';
 import { triggerAppPrint } from '../utils/printHelper';
@@ -11,6 +11,40 @@ export const InvoicePreview: React.FC = () => {
   const { currentInvoice, companyDetails, setActiveTab, setShowDiscount, deductStockForInvoice } = useInvoiceStore();
   const [copyType, setCopyType] = useState<'customer' | 'office'>('customer');
   const [densityMode, setDensityMode] = useState<'auto' | 'compact' | 'comfortable'>('auto');
+
+  // ── Date Override (Print on a different date without saving) ────────────────
+  const [showDateOverride, setShowDateOverride] = useState(false);
+  const [overridePrintBS, setOverridePrintBS] = useState('');
+  const [overridePrintAD, setOverridePrintAD] = useState('');
+
+  const handleOverrideBSChange = (val: string) => {
+    setOverridePrintBS(val);
+    if (val.length === 10) {
+      const ad = convertBSToAD(val);
+      if (ad) setOverridePrintAD(ad);
+    }
+  };
+
+  const handleOverrideADChange = (val: string) => {
+    setOverridePrintAD(val);
+    if (val.length === 10) {
+      const bs = convertADToBS(val);
+      if (bs) setOverridePrintBS(bs);
+    }
+  };
+
+  const clearDateOverride = () => {
+    setOverridePrintBS('');
+    setOverridePrintAD('');
+    setShowDateOverride(false);
+  };
+
+  const setOverrideToToday = () => {
+    const today = getTodayDates();
+    setOverridePrintBS(today.dateBS);
+    setOverridePrintAD(today.dateAD);
+  };
+
   const [showBuyerPan, setShowBuyerPan] = useState<boolean>(() => {
     try {
       const saved = localStorage.getItem('pnp_show_buyer_pan');
@@ -372,9 +406,13 @@ export const InvoicePreview: React.FC = () => {
   const minimumRows = isCompact ? 0 : 6;
   const paddingRowsNeeded = Math.max(0, minimumRows - itemCount);
 
-  const effectiveBS = currentInvoice.dateBS || (currentInvoice.dateAD ? convertADToBS(currentInvoice.dateAD) : '');
-  const effectiveAD = currentInvoice.dateAD || (currentInvoice.dateBS ? convertBSToAD(currentInvoice.dateBS) : '');
+  // Effective dates: use override if set, otherwise fall back to invoice dates
+  const rawBS = currentInvoice.dateBS || (currentInvoice.dateAD ? convertADToBS(currentInvoice.dateAD) : '');
+  const rawAD = currentInvoice.dateAD || (currentInvoice.dateBS ? convertBSToAD(currentInvoice.dateBS) : '');
+  const effectiveBS = overridePrintBS || rawBS;
+  const effectiveAD = overridePrintAD || rawAD;
   const nepaliDateFormatted = effectiveBS ? formatBSDate(effectiveBS, true) : '';
+  const isDateOverridden = !!(overridePrintBS || overridePrintAD);
 
   return (
     <div className="max-w-4xl mx-auto pb-12 print:max-w-none print:w-full print:p-0 print:m-0 print:pb-0 print:bg-white">
@@ -549,6 +587,21 @@ export const InvoicePreview: React.FC = () => {
             </button>
           )}
 
+          {/* ── Change Print Date Button ── */}
+          <button
+            type="button"
+            onClick={() => setShowDateOverride((prev) => !prev)}
+            className={`text-xs px-3 py-1.5 rounded-xl font-medium border transition-all flex items-center gap-1.5 ${
+              isDateOverridden
+                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 font-bold'
+                : 'bg-slate-900 text-slate-400 border-slate-700 hover:text-slate-200'
+            }`}
+            title="Print this bill on a different date (does not save to record)"
+          >
+            <CalendarClock className="h-3.5 w-3.5" />
+            {isDateOverridden ? `📅 Date: ${overridePrintBS || overridePrintAD}` : 'Change Print Date'}
+          </button>
+
           <span className="hidden xl:inline-flex items-center gap-1 text-[11px] text-slate-400 font-medium px-1 select-none">
             <Move className="h-3 w-3 text-amber-400 animate-pulse" />
             <span>Drag on bill to move • Drag corner handles to resize</span>
@@ -586,6 +639,68 @@ export const InvoicePreview: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* ── Inline Date Override Row (shown when Change Print Date is open) ── */}
+      {showDateOverride && (
+        <div className="print:hidden bg-amber-950/30 border border-amber-500/30 rounded-2xl p-4 mb-4 shadow-lg flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2 text-amber-300">
+            <CalendarClock className="h-4 w-4 shrink-0" />
+            <span className="text-xs font-bold whitespace-nowrap">Override Print Date:</span>
+          </div>
+
+          {/* BS Date Input */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Miti (BS)</label>
+            <input
+              type="text"
+              value={overridePrintBS}
+              onChange={(e) => handleOverrideBSChange(e.target.value)}
+              placeholder="2081-07-15"
+              maxLength={10}
+              className="bg-slate-950 border border-slate-700 focus:border-amber-400 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-600 font-mono transition-colors outline-none w-32"
+            />
+            {overridePrintBS && parseBSDate(overridePrintBS) && (
+              <span className="text-[10px] text-amber-300">{formatBSDate(overridePrintBS)}</span>
+            )}
+          </div>
+
+          {/* AD Date Input */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Roman (AD)</label>
+            <input
+              type="date"
+              value={overridePrintAD}
+              onChange={(e) => handleOverrideADChange(e.target.value)}
+              className="bg-slate-950 border border-slate-700 focus:border-sky-400 rounded-lg px-3 py-1.5 text-xs text-white font-mono transition-colors outline-none"
+              style={{ colorScheme: 'dark' }}
+            />
+          </div>
+
+          {/* Today shortcut */}
+          <button
+            onClick={setOverrideToToday}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-sky-600/20 border border-sky-500/30 text-sky-300 hover:bg-sky-600/30 font-semibold transition-all whitespace-nowrap"
+          >
+            <RefreshCw className="h-3 w-3" />
+            Use Today
+          </button>
+
+          {/* Clear override */}
+          {isDateOverridden && (
+            <button
+              onClick={clearDateOverride}
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 font-semibold transition-all whitespace-nowrap"
+            >
+              <X className="h-3 w-3" />
+              Reset to Original
+            </button>
+          )}
+
+          <p className="text-[10px] text-slate-500 ml-auto hidden lg:block">
+            ⚠️ Override is print-only — saved invoice record stays unchanged.
+          </p>
+        </div>
+      )}
 
       {/* A4 Printable Invoice Sheet */}
       <div className="print:m-0 print:p-0 print:w-full">

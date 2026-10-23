@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { 
   Search, Edit, Copy, Trash2, 
-  Download, Eye, Calendar, DollarSign, CheckCircle2, AlertTriangle, FileSpreadsheet 
+  Download, Eye, Calendar, DollarSign, CheckCircle2, AlertTriangle, FileSpreadsheet, CalendarClock, X, RefreshCw
 } from 'lucide-react';
 import { useInvoiceStore } from '../store/useInvoiceStore';
 import { formatNPR } from '../utils/formatters';
 import { BrandExcelExportModal } from './BrandExcelExportModal';
 import { useLiveClock } from '../hooks/useLiveClock';
-import { getYesterdayDates, parseBSDate, formatBSDate } from '../utils/nepaliDate';
+import { getYesterdayDates, parseBSDate, formatBSDate, convertBSToAD, convertADToBS, getTodayDates } from '../utils/nepaliDate';
+import type { Invoice } from '../types/invoice';
 
 export const InvoiceHistory: React.FC = () => {
   const { savedInvoices, activeTab, viewInvoicePreview, loadInvoiceForEdit, duplicateInvoice, deleteInvoice } = useInvoiceStore();
@@ -16,6 +17,56 @@ export const InvoiceHistory: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState('all');
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'yesterday' | 'this_month' | 'this_fy'>('all');
   const [showBrandModal, setShowBrandModal] = useState(false);
+
+  // ── Print-with-New-Date State ────────────────────────────────────────────────
+  const [dateOverrideInvoice, setDateOverrideInvoice] = useState<Invoice | null>(null);
+  const [overrideBS, setOverrideBS] = useState('');
+  const [overrideAD, setOverrideAD] = useState('');
+
+  const openDateOverrideModal = (inv: Invoice) => {
+    setDateOverrideInvoice(inv);
+    setOverrideBS(inv.dateBS || '');
+    setOverrideAD(inv.dateAD || '');
+  };
+
+  const closeDateOverrideModal = () => {
+    setDateOverrideInvoice(null);
+    setOverrideBS('');
+    setOverrideAD('');
+  };
+
+  const handleOverrideBSChange = (val: string) => {
+    setOverrideBS(val);
+    if (val.length === 10) {
+      const ad = convertBSToAD(val);
+      if (ad) setOverrideAD(ad);
+    }
+  };
+
+  const handleOverrideADChange = (val: string) => {
+    setOverrideAD(val);
+    if (val.length === 10) {
+      const bs = convertADToBS(val);
+      if (bs) setOverrideBS(bs);
+    }
+  };
+
+  const setOverrideToToday = () => {
+    const today = getTodayDates();
+    setOverrideBS(today.dateBS);
+    setOverrideAD(today.dateAD);
+  };
+
+  const confirmPrintWithNewDate = () => {
+    if (!dateOverrideInvoice) return;
+    const modifiedInvoice: Invoice = {
+      ...dateOverrideInvoice,
+      dateBS: overrideBS || dateOverrideInvoice.dateBS,
+      dateAD: overrideAD || dateOverrideInvoice.dateAD,
+    };
+    viewInvoicePreview(modifiedInvoice);
+    closeDateOverrideModal();
+  };
 
   const yesterday = getYesterdayDates();
   const currentBS = parseBSDate(liveClock.dateBS);
@@ -311,6 +362,14 @@ export const InvoiceHistory: React.FC = () => {
                         >
                           <Eye className="h-4 w-4" />
                         </button>
+                        {/* ── Print with New Date ── */}
+                        <button
+                          onClick={() => openDateOverrideModal(inv)}
+                          className="p-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 transition-colors"
+                          title="🗓️ Print this old bill on a new / different date"
+                        >
+                          <CalendarClock className="h-4 w-4" />
+                        </button>
                         <button
                           onClick={() => loadInvoiceForEdit(inv.id)}
                           className="p-1.5 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 transition-colors"
@@ -357,6 +416,110 @@ export const InvoiceHistory: React.FC = () => {
         isOpen={showBrandModal}
         onClose={() => setShowBrandModal(false)}
       />
+
+      {/* ── Print with New Date Modal ─────────────────────────────────────────── */}
+      {dateOverrideInvoice && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ backgroundColor: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)' }}
+          onClick={(e) => { if (e.target === e.currentTarget) closeDateOverrideModal(); }}
+        >
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-200">
+            
+            {/* Modal Header */}
+            <div className="flex items-start justify-between">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <div className="h-8 w-8 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center">
+                    <CalendarClock className="h-4 w-4 text-amber-400" />
+                  </div>
+                  <h3 className="text-base font-extrabold text-white">Print Bill with New Date</h3>
+                </div>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Invoice <span className="text-sky-400 font-bold font-mono">{dateOverrideInvoice.invoiceNumber}</span> — original date:{' '}
+                  <span className="text-slate-300 font-mono">{dateOverrideInvoice.dateBS}</span>.
+                  Set the print date below. The saved record will <span className="text-amber-300 font-semibold">NOT</span> be changed.
+                </p>
+              </div>
+              <button
+                onClick={closeDateOverrideModal}
+                className="ml-3 p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors shrink-0"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Quick: Use Today's Date */}
+            <button
+              onClick={setOverrideToToday}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-sky-600/30 to-indigo-600/30 border border-sky-500/30 hover:border-sky-400/50 text-sky-300 text-xs font-bold transition-all hover:from-sky-600/40 hover:to-indigo-600/40"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              Use Today's Date ({getTodayDates().dateBS} / {getTodayDates().dateAD})
+            </button>
+
+            {/* Date Inputs */}
+            <div className="grid grid-cols-2 gap-3">
+              {/* BS Date */}
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full bg-amber-400 inline-block"></span>
+                  Miti (BS) Date
+                </label>
+                <input
+                  type="text"
+                  value={overrideBS}
+                  onChange={(e) => handleOverrideBSChange(e.target.value)}
+                  placeholder="YYYY-MM-DD"
+                  maxLength={10}
+                  className="w-full bg-slate-950 border border-slate-700 focus:border-amber-400 rounded-xl px-3 py-2.5 text-sm text-white placeholder-slate-600 font-mono transition-colors outline-none"
+                />
+                {overrideBS && parseBSDate(overrideBS) && (
+                  <p className="text-[10px] text-amber-300 font-medium">{formatBSDate(overrideBS)}</p>
+                )}
+              </div>
+
+              {/* AD Date */}
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full bg-sky-400 inline-block"></span>
+                  Roman (AD) Date
+                </label>
+                <input
+                  type="date"
+                  value={overrideAD}
+                  onChange={(e) => handleOverrideADChange(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 focus:border-sky-400 rounded-xl px-3 py-2.5 text-sm text-white font-mono transition-colors outline-none"
+                  style={{ colorScheme: 'dark' }}
+                />
+              </div>
+            </div>
+
+            {/* Auto-conversion hint */}
+            <p className="text-[10px] text-slate-500 text-center">
+              💡 Dates auto-convert — type BS to auto-fill AD, or pick AD to auto-fill BS.
+            </p>
+
+            {/* Action Buttons */}
+            <div className="flex gap-3 pt-1">
+              <button
+                onClick={closeDateOverrideModal}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold border border-slate-700 transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmPrintWithNewDate}
+                disabled={!overrideBS && !overrideAD}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-white text-xs font-extrabold shadow-lg shadow-amber-500/30 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <CalendarClock className="h-4 w-4" />
+                Print on New Date
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

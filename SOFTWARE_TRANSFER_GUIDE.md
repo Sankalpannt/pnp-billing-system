@@ -1,11 +1,11 @@
-# PNP TECH TRADERS Billing & Invoice Software - Client Handover & Installation Guide (v1.0.7)
+# PNP TECH TRADERS Billing & Invoice Software - Client Handover & Installation Guide (v1.0.8)
 
 ---
 
 ## 🚀 NEW: How Current Clients Receive This Update (Auto-Update)
 
 If the client is **already running the software** on their computer:
-1. When they open the software or connect to the internet, it will automatically detect **v1.0.7**.
+1. When they open the software or connect to the internet, it will automatically detect **v1.0.8**.
 2. Or they can go to **Settings (सेटिङहरू)** -> **Check for Updates** -> Click **"Restart & Install Now ⚡"**.
 3. **Database is 100% Protected**: Existing invoices, customers, and data are never touched or modified during updates.
 
@@ -17,8 +17,8 @@ The ready-to-use `.exe` files in your **`exe file for client/`** and **`release/
 
 | File Name | Type | Recommended Use |
 | :--- | :--- | :--- |
-| **`PNP TECH TRADERS Billing Software Setup 1.0.7.exe`** | **Installer (Recommended)** | Double-click to install. Automatically creates a **Desktop Shortcut Icon** on the client's PC. |
-| **`PNP TECH TRADERS Billing Software 1.0.7.exe`** | **Portable** | Runs directly without installing (can run even from a USB pen drive). |
+| **`PNP TECH TRADERS Billing Software Setup 1.0.8.exe`** | **Installer (Recommended)** | Double-click to install. Automatically creates a **Desktop Shortcut Icon** on the client's PC. |
+| **`PNP TECH TRADERS Billing Software 1.0.8.exe`** | **Portable** | Runs directly without installing (can run even from a USB pen drive). |
 
 ---
 
@@ -39,18 +39,18 @@ The software is now secured with a Master Password Lock:
 
 Choose any of these methods:
 1. **Direct GitHub Download Link**:
-   - https://github.com/Sankalpannt/pnp-billing-system/releases/tag/v1.0.7
+   - https://github.com/Sankalpannt/pnp-billing-system/releases/tag/v1.0.8
 2. **USB Pen Drive (Fastest Offline)**:
-   - Copy `PNP TECH TRADERS Billing Software Setup 1.0.7.exe` to a USB flash drive.
+   - Copy `PNP TECH TRADERS Billing Software Setup 1.0.8.exe` to a USB flash drive.
    - Plug into the client's PC and copy it to their Desktop.
 3. **Google Drive / OneDrive / WeTransfer**:
-   - Upload `PNP TECH TRADERS Billing Software Setup 1.0.7.exe` and share the link via WhatsApp or Email.
+   - Upload `PNP TECH TRADERS Billing Software Setup 1.0.8.exe` and share the link via WhatsApp or Email.
 
 ---
 
 ## 💻 4. Step-by-Step Installation on Client's PC
 
-1. Double-click on `PNP TECH TRADERS Billing Software Setup 1.0.7.exe`.
+1. Double-click on `PNP TECH TRADERS Billing Software Setup 1.0.8.exe`.
 2. **If Windows SmartScreen appears ("Windows protected your PC")**:
    - Click on **"More info"** (*थप जानकारी*).
    - Click the button **"Run anyway"** (*तैपनि चलाउनुहोस् / Run anyway*).
@@ -59,8 +59,13 @@ Choose any of these methods:
 
 ---
 
-## ⚙️ 5. What's Included in v1.0.7
+## ⚙️ 5. What's Included in v1.0.8
 
+- **Print Old Bills on New / Custom Date (नयाँ मितिमा बिल प्रिन्ट गर्ने सुविधा)**:
+  - Print previously generated invoices with today's date or any custom Bikram Sambat (BS) / English (AD) date.
+  - Direct 1-click modal from Bill History table (`CalendarClock` icon) and "Change Print Date" on the Bill Preview screen.
+  - Two-way instant conversion between BS and AD dates.
+  - Safe and non-destructive: Original saved database records remain intact.
 - **Stock Database & Warehouse Tracking (गोदाम व्यवस्थापन)**:
   - Real-time stock counts across all categories (CCTV & Security, Hardware, Electronics, Photo & Studio, Accessories, etc.).
   - Automatic inventory deduction when invoices or sales bills are saved/printed, with on-screen verification (`Stock Deducted ✓`).
