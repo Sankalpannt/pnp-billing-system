@@ -118,6 +118,7 @@ interface InvoiceState {
   importSheetFromExcelData: (sheetName: string, columns: ExcelColumn[], rows: ExcelRow[]) => void;
   addItemToInvoiceFromStore: (row: ExcelRow) => void;
   recordScannedBarcodeToExcel: (entry: { code: string; tagNumber?: string; sectionName?: string; deviceName?: string }) => void;
+  addNoteToScannedExcel: (noteText: string, tagNumber?: string) => void;
 }
 
 const createDefaultLineItem = (sn: number): LineItem => ({
@@ -1791,14 +1792,72 @@ export const useInvoiceStore = create<InvoiceState>((set, get) => ({
       };
     }
 
+    const nextOrderNo = targetSheet.rows.filter(r => typeof r.orderNo === 'number').length + 1;
+
     const newRow: ExcelRow = {
       id: 'row-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
-      orderNo: targetSheet.rows.length + 1,
+      orderNo: nextOrderNo,
       tagNumber: cleanTag,
       code: cleanCode,
       sectionName: sectionName || '',
       scannedAt: nowStr,
       device: deviceName || 'Scanner'
+    };
+
+    const updatedSheet: ExcelSheet = {
+      ...targetSheet,
+      rows: [...targetSheet.rows, newRow],
+      updatedAt: new Date().toISOString()
+    };
+
+    const exists = current.sheets.some(s => s.id === sheetId);
+    const updatedSheets = exists
+      ? current.sheets.map(s => (s.id === sheetId ? updatedSheet : s))
+      : [...current.sheets, updatedSheet];
+
+    const updated: ShopSpreadsheetData = {
+      ...current,
+      sheets: updatedSheets
+    };
+    saveSpreadsheetData(updated);
+    set({ spreadsheetData: updated });
+  },
+
+  addNoteToScannedExcel: (noteText, tagNumber) => {
+    const cleanNote = (noteText || '').trim();
+    if (!cleanNote) return;
+
+    const current = get().spreadsheetData;
+    const sheetId = 'sheet-scanned-barcodes';
+    let targetSheet = current.sheets.find(s => s.id === sheetId);
+
+    if (!targetSheet) {
+      targetSheet = {
+        id: sheetId,
+        name: 'Scanned Barcodes',
+        icon: 'custom',
+        columns: [
+          { id: 'orderNo', title: 'Order #', type: 'number', width: 80 },
+          { id: 'tagNumber', title: 'Tag Number', type: 'badge', width: 130 },
+          { id: 'code', title: 'Barcode / S/N Code', type: 'text', width: 260 },
+          { id: 'sectionName', title: 'Section / Note', type: 'text', width: 200 },
+          { id: 'scannedAt', title: 'Scanned Time', type: 'text', width: 170 },
+          { id: 'device', title: 'Source', type: 'text', width: 140 }
+        ],
+        rows: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+    }
+
+    const newRow: ExcelRow = {
+      id: 'row-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+      orderNo: 'NOTE',
+      tagNumber: (tagNumber || 'NOTE').trim().toUpperCase(),
+      code: cleanNote,
+      sectionName: 'Section Divider / Text Note',
+      scannedAt: new Date().toLocaleString(),
+      device: 'Text Note'
     };
 
     const updatedSheet: ExcelSheet = {

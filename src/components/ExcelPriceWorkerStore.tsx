@@ -25,6 +25,7 @@ export const ExcelPriceWorkerStore: React.FC = () => {
     deleteColumn, 
     importSheetFromExcelData,
     addItemToInvoiceFromStore,
+    addNoteToScannedExcel,
     catalog
   } = useInvoiceStore();
 
@@ -58,6 +59,7 @@ export const ExcelPriceWorkerStore: React.FC = () => {
 
   const [importStatusMessage, setImportStatusMessage] = useState<string | null>(null);
   const [addedBillSuccessRowId, setAddedBillSuccessRowId] = useState<string | null>(null);
+  const [excelNoteInput, setExcelNoteInput] = useState('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cellInputRef = useRef<HTMLInputElement>(null);
@@ -666,6 +668,36 @@ export const ExcelPriceWorkerStore: React.FC = () => {
           <Check className="h-4 w-4 text-emerald-400 shrink-0" />
           <span>{importStatusMessage}</span>
         </div>
+      )}
+
+      {/* Quick Text Note / Section Divider Bar for Scanned Barcodes Sheet */}
+      {activeSheet?.id === 'sheet-scanned-barcodes' && (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!excelNoteInput.trim()) return;
+            addNoteToScannedExcel(excelNoteInput.trim(), 'NOTE');
+            setImportStatusMessage(`Added text note "${excelNoteInput.trim()}" to Scanned Barcodes`);
+            setExcelNoteInput('');
+            setTimeout(() => setImportStatusMessage(null), 3000);
+          }}
+          className="p-3 rounded-2xl bg-slate-900/90 border border-sky-500/30 flex flex-col sm:flex-row items-center gap-2.5 print:hidden"
+        >
+          <span className="text-xs font-bold text-sky-400 shrink-0">📝 Add Text Note / Divider:</span>
+          <input
+            type="text"
+            value={excelNoteInput}
+            onChange={(e) => setExcelNoteInput(e.target.value)}
+            placeholder="e.g. 2K Model Finished — 3K Model Start from here..."
+            className="flex-1 w-full bg-slate-950 border border-slate-700 focus:border-sky-400 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500"
+          />
+          <button
+            type="submit"
+            className="w-full sm:w-auto px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold transition-all shrink-0"
+          >
+            + Add Note Row
+          </button>
+        </form>
       )}
 
       {/* Multi-Sheet Workbook Tab Bar */}

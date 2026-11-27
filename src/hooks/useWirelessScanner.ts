@@ -205,7 +205,8 @@ export function useWirelessScanner() {
     catalog,
     addLineItem,
     setCctvDetails,
-    recordScannedBarcodeToExcel
+    recordScannedBarcodeToExcel,
+    addNoteToScannedExcel
   } = useInvoiceStore();
 
   // Fetch local network IP addresses from relay server HTTP endpoint
@@ -456,7 +457,22 @@ export function useWirelessScanner() {
             if (nonLoop) setSelectedIp(nonLoop.ip);
           }
         } else if (msg.type === 'SCAN_DATA') {
-          handleIncomingScanRef.current(msg.data, msg.deviceName || 'Mobile Phone');
+          if (msg.data?.isNote && msg.data?.noteText) {
+            addNoteToScannedExcel(msg.data.noteText, msg.data.tagNumber);
+            playDesktopScanChime();
+            const toastId = Date.now();
+            setToastMessage({
+              title: `📝 Excel Note: ${msg.data.noteText}`,
+              subtitle: `${msg.deviceName || 'Mobile Phone'} • Added text divider to Excel`,
+              id: toastId,
+              tagNumber: msg.data.tagNumber
+            });
+            setTimeout(() => {
+              setToastMessage(current => (current && current.id === toastId ? null : current));
+            }, 4500);
+          } else {
+            handleIncomingScanRef.current(msg.data, msg.deviceName || 'Mobile Phone');
+          }
         }
       } catch (err) {
         console.error('Error parsing WebSocket message:', err);

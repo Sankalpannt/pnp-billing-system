@@ -276,6 +276,15 @@ function getMobileScannerHtml(serverPort) {
       </form>
     </div>
 
+    <!-- Text Note / Section Divider for Excel -->
+    <div class="manual-card" style="border-color: rgba(16, 185, 129, 0.3);">
+      <div class="card-title" style="color: #34d399;">📝 Add Text Note / Divider to Excel</div>
+      <form onsubmit="handleNoteSend(event)" class="input-row">
+        <input type="text" id="noteInput" class="text-input" placeholder="e.g. 2K finish, 3K start from here..." autocomplete="off">
+        <button type="submit" class="btn btn-success">Add Note</button>
+      </form>
+    </div>
+
     <!-- History Card -->
     <div class="history-card">
       <div class="history-header">
@@ -573,6 +582,30 @@ function getMobileScannerHtml(serverPort) {
         sendBarcode(val);
         input.value = '';
       }
+    }
+
+    function handleNoteSend(e) {
+      e.preventDefault();
+      const input = document.getElementById('noteInput');
+      const noteText = input.value.trim();
+      if (!noteText) return;
+      const tagInput = document.getElementById('tagNumberInput');
+      const tagNumber = (tagInput?.value || 'NOTE').trim().toUpperCase();
+      playBeep();
+      vibratePhone();
+      showToast('📝 Note Added: ' + noteText);
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'SCAN_EVENT',
+          payload: {
+            isNote: true,
+            noteText: noteText,
+            tagNumber: tagNumber,
+            timestamp: Date.now()
+          }
+        }));
+      }
+      input.value = '';
     }
 
     // Camera Lifecycle

@@ -37,8 +37,10 @@ export const WirelessScannerModal: React.FC<WirelessScannerModalProps> = ({
   onSimulateScan,
   onRefreshNetwork
 }) => {
-  const { currentInvoice, setCctvDetails } = useInvoiceStore();
+  const { currentInvoice, setCctvDetails, addNoteToScannedExcel } = useInvoiceStore();
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
+  const [excelNoteText, setExcelNoteText] = useState('');
+  const [noteSavedToast, setNoteSavedToast] = useState(false);
   const [copiedWs, setCopiedWs] = useState(false);
   const [copiedWeb, setCopiedWeb] = useState(false);
   const [customTestInput, setCustomTestInput] = useState('');
@@ -438,6 +440,33 @@ export const WirelessScannerModal: React.FC<WirelessScannerModalProps> = ({
                     )}
                   </div>
                 </div>
+
+                {/* Quick Text Note / Section Divider for Excel */}
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!excelNoteText.trim()) return;
+                    addNoteToScannedExcel(excelNoteText.trim(), selectedTagInModal || 'NOTE');
+                    setExcelNoteText('');
+                    setNoteSavedToast(true);
+                    setTimeout(() => setNoteSavedToast(false), 2500);
+                  }}
+                  className="p-3 rounded-xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row items-center gap-2"
+                >
+                  <input
+                    type="text"
+                    value={excelNoteText}
+                    onChange={(e) => setExcelNoteText(e.target.value)}
+                    placeholder="📝 Write Excel text note (e.g. 2K Finish — 3K Start from here)..."
+                    className="flex-1 w-full bg-slate-950 border border-slate-700 focus:border-sky-400 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500"
+                  />
+                  <button
+                    type="submit"
+                    className="w-full sm:w-auto px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold shrink-0"
+                  >
+                    {noteSavedToast ? '✓ Added to Excel' : '+ Add Text to Excel'}
+                  </button>
+                </form>
 
                 {/* Available Tag Chips with scroll constraint */}
                 <div className="flex items-center gap-2 flex-wrap max-h-36 overflow-y-auto pr-1">
