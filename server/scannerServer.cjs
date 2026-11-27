@@ -144,6 +144,15 @@ function getMobileScannerHtml(serverPort) {
     @keyframes bounceIn { 0% { transform: translate(-50%, -20px); opacity: 0; } 100% { transform: translate(-50%, 0); opacity: 1; } }
 
     .help-hint { font-size: 11px; color: #64748b; text-align: center; margin-top: 4px; }
+
+    /* Single-Scan Hold Overlay & Floating Next Button */
+    .scan-paused-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 56px; background: rgba(11, 15, 25, 0.86); backdrop-filter: blur(4px); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 16px; text-align: center; z-index: 20; }
+    .scan-paused-badge { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); padding: 4px 12px; border-radius: 9999px; font-size: 12px; font-weight: 800; }
+    .scan-paused-code { font-family: monospace; font-size: 14px; font-weight: 800; color: #38bdf8; word-break: break-all; max-width: 90%; background: #0f172a; padding: 8px 14px; border-radius: 10px; border: 1px solid #1e293b; }
+    .scan-paused-hint { font-size: 11px; color: #94a3b8; }
+
+    .floating-next-btn { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); z-index: 200; display: none; align-items: center; justify-content: center; gap: 10px; padding: 15px 32px; border-radius: 9999px; background: linear-gradient(135deg, #10b981, #0284c7); color: #ffffff; font-size: 16px; font-weight: 800; border: 2px solid rgba(255, 255, 255, 0.25); box-shadow: 0 12px 30px rgba(16, 185, 129, 0.45); cursor: pointer; animation: bounceIn 0.25s ease; white-space: nowrap; }
+    .floating-next-btn:active { transform: translateX(-50%) scale(0.96); }
   </style>
 </head>
 <body>
@@ -240,6 +249,11 @@ function getMobileScannerHtml(serverPort) {
     <!-- Scanner Card -->
     <div class="scanner-card">
       <div id="reader"></div>
+      <div id="scanPausedOverlay" class="scan-paused-overlay" style="display: none;">
+        <div class="scan-paused-badge">✓ Scanned &amp; Sent</div>
+        <div id="pausedScannedCode" class="scan-paused-code"></div>
+        <div class="scan-paused-hint">Tap <strong>Next Scan</strong> below to scan another barcode / QR</div>
+      </div>
       <div class="scan-controls">
         <button id="toggleCameraBtn" class="btn btn-primary" onclick="toggleCamera()">
           📷 <span id="cameraBtnText">Start Camera Scanner</span>
@@ -279,10 +293,18 @@ function getMobileScannerHtml(serverPort) {
     </p>
   </main>
 
+  <!-- Floating Next Scan Button -->
+  <button type="button" id="floatingNextBtn" class="floating-next-btn" onclick="resumeNextScan()">
+    <span>📷 Next Scan</span>
+    <span>➜</span>
+  </button>
+
   <script>
     let ws = null;
+    let reconnectTimer = null;
     let html5QrCode = null;
     let isCameraRunning = false;
+    let isWaitingForNext = false;
     let currentFacingMode = 'environment';
     let isTorchOn = false;
     let lastScannedText = '';
@@ -444,30 +466,45 @@ function getMobileScannerHtml(serverPort) {
 
     // Connect WebSocket to Desktop Relay Server
     function connectRelay() {
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      if (ws) {
+        ws.onopen = null;
+        ws.onclose = null;
+        ws.onerror = null;
+        try { ws.close(); } catch (e) {}
+      }
+
       const host = window.location.hostname || 'localhost';
       const wsUrl = 'ws://' + host + ':${serverPort}?type=mobile&device=' + encodeURIComponent(navigator.userAgent.includes('iPhone') ? 'iPhone' : 'Android Mobile');
       
-      ws = new WebSocket(wsUrl);
+      const currentWs = new WebSocket(wsUrl);
+      ws = currentWs;
 
-      ws.onopen = () => {
+      currentWs.onopen = () => {
+        if (ws !== currentWs) return;
         const badge = document.getElementById('connStatus');
         badge.className = 'status-badge status-online';
         badge.innerHTML = '<span class="status-dot dot-online"></span><span>Connected to PC</span>';
-        ws.send(JSON.stringify({
+        currentWs.send(JSON.stringify({
           type: 'REGISTER_MOBILE',
           deviceName: navigator.userAgent.includes('iPhone') ? 'iPhone' : 'Android Mobile'
         }));
       };
 
-      ws.onclose = () => {
+      currentWs.onclose = () => {
+        if (ws !== currentWs) return;
         const badge = document.getElementById('connStatus');
         badge.className = 'status-badge status-offline';
         badge.innerHTML = '<span class="status-dot dot-offline"></span><span>Reconnecting...</span>';
-        setTimeout(connectRelay, 2500);
+        reconnectTimer = setTimeout(connectRelay, 2500);
       };
 
-      ws.onerror = () => {
-        try { ws.close(); } catch(e) {}
+      currentWs.onerror = () => {
+        if (ws !== currentWs) return;
+        try { currentWs.close(); } catch(e) {}
       };
     }
 
@@ -587,6 +624,11 @@ function getMobileScannerHtml(serverPort) {
               return;
             }
 
+            // Hold after 1 scan until user taps the floating Next Scan button
+            if (isWaitingForNext) {
+              return;
+            }
+
             // Prevent rapid multi-firing of same barcode within 1.5 seconds
             if (decodedText === lastScannedText && (now - lastScanTime) < 1500) {
               return;
@@ -594,12 +636,22 @@ function getMobileScannerHtml(serverPort) {
             lastScannedText = decodedText;
             lastScanTime = now;
             sendBarcode(decodedText);
+
+            // Pause scanning and show floating Next button
+            isWaitingForNext = true;
+            const codeEl = document.getElementById('pausedScannedCode');
+            if (codeEl) codeEl.innerText = decodedText;
+            const overlay = document.getElementById('scanPausedOverlay');
+            if (overlay) overlay.style.display = 'flex';
+            const nextBtn = document.getElementById('floatingNextBtn');
+            if (nextBtn) nextBtn.style.display = 'flex';
           },
           (errorMessage) => {
             // Ignored - frame without barcode
           }
         );
 
+        resumeNextScan();
         isCameraRunning = true;
         document.getElementById('cameraBtnText').innerText = 'Stop Camera';
         document.getElementById('toggleCameraBtn').className = 'btn btn-secondary';
@@ -611,7 +663,18 @@ function getMobileScannerHtml(serverPort) {
       }
     }
 
+    function resumeNextScan() {
+      isWaitingForNext = false;
+      lastScannedText = '';
+      lastScanTime = 0;
+      const overlay = document.getElementById('scanPausedOverlay');
+      if (overlay) overlay.style.display = 'none';
+      const nextBtn = document.getElementById('floatingNextBtn');
+      if (nextBtn) nextBtn.style.display = 'none';
+    }
+
     async function stopCamera() {
+      resumeNextScan();
       if (html5QrCode && isCameraRunning) {
         try {
           await html5QrCode.stop();

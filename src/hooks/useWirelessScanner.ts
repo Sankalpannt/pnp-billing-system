@@ -176,9 +176,27 @@ export function useWirelessScanner() {
     } catch {}
   }, [tagRecords]);
 
+  // Keep tagRecords in sync when tags/serials are deleted from InvoiceForm or WirelessScannerModal
+  useEffect(() => {
+    const syncTagsFromStorage = () => {
+      try {
+        const saved = localStorage.getItem('pnp_scanner_tag_records');
+        if (saved !== null) {
+          const parsed = JSON.parse(saved);
+          setTagRecords(prev => (JSON.stringify(prev) === saved ? prev : parsed));
+        }
+      } catch {}
+    };
+
+    window.addEventListener('storage', syncTagsFromStorage);
+    return () => window.removeEventListener('storage', syncTagsFromStorage);
+  }, []);
+
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<any>(null);
   const isComponentMounted = useRef(true);
+  const lastProcessedScanRef = useRef<{ text: string; time: number; payloadTimestamp?: number }>({ text: '', time: 0 });
+  const handleIncomingScanRef = useRef<(payload: ScannedPayload, deviceName?: string) => void>(() => {});
 
   // Access invoice store actions
   const {
@@ -209,8 +227,19 @@ export function useWirelessScanner() {
 
   // Process incoming scanned barcode payload
   const handleIncomingScan = useCallback((payload: ScannedPayload, deviceName = 'Mobile Phone') => {
-    const rawText = payload.rawText || payload.serialNumber || '';
-    if (!rawText.trim()) return;
+    const rawText = (payload.rawText || payload.serialNumber || '').trim();
+    if (!rawText) return;
+
+    // Deduplicate rapid/duplicate scan events (e.g. duplicate WS delivery or double-trigger)
+    const now = Date.now();
+    const last = lastProcessedScanRef.current;
+    if (
+      last.text === rawText &&
+      ((payload.timestamp && last.payloadTimestamp === payload.timestamp) || (now - last.time) < 1200)
+    ) {
+      return;
+    }
+    lastProcessedScanRef.current = { text: rawText, time: now, payloadTimestamp: payload.timestamp };
 
     // 1. Play audio confirmation chime
     playDesktopScanChime();
@@ -224,12 +253,22 @@ export function useWirelessScanner() {
     setScanHistory(prev => [historyItem, ...prev.slice(0, 49)]);
 
     // 3. Update Tag records mapping if tagNumber is provided
-    const tag = payload.tagNumber?.trim();
-    const sn = payload.serialNumber || rawText;
+    const tag = payload.tagNumber?.trim().toUpperCase();
+    const sn = (payload.serialNumber || rawText).trim();
 
     if (tag) {
       setTagRecords(prev => {
-        const existing = prev[tag] || {
+        // Read latest from localStorage so deleted tags/serials are never resurrected
+        let base = prev;
+        try {
+          const saved = localStorage.getItem('pnp_scanner_tag_records');
+          if (saved !== null) {
+            base = JSON.parse(saved);
+          }
+        } catch {}
+
+        const existingKey = Object.keys(base).find(k => k.toUpperCase() === tag) || tag;
+        const existing = base[existingKey] || {
           tagNumber: tag,
           sectionName: payload.sectionName || `Section ${tag}`,
           serials: [],
@@ -242,9 +281,10 @@ export function useWirelessScanner() {
         const updatedItems = [historyItem, ...(existing.items || [])].slice(0, 30);
 
         return {
-          ...prev,
-          [tag]: {
+          ...base,
+          [existingKey]: {
             ...existing,
+            tagNumber: tag,
             sectionName: payload.sectionName || existing.sectionName,
             serials: updatedSerials,
             items: updatedItems,
@@ -353,24 +393,38 @@ export function useWirelessScanner() {
     return tagRecords[clean]?.serials || [];
   }, [tagRecords]);
 
-  // Connect to WebSocket relay server
+  useEffect(() => {
+    handleIncomingScanRef.current = handleIncomingScan;
+  }, [handleIncomingScan]);
+
+  // Connect to WebSocket relay server (stable connection, does not reconnect on invoice edits)
   const connectWebSocket = useCallback(() => {
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+
     if (socketRef.current) {
-      try { socketRef.current.close(); } catch (e) {}
+      const oldWs = socketRef.current;
+      oldWs.onopen = null;
+      oldWs.onmessage = null;
+      oldWs.onclose = null;
+      oldWs.onerror = null;
+      try { oldWs.close(); } catch (e) {}
     }
 
     const ws = new WebSocket('ws://localhost:8090?type=desktop&name=DesktopBilling');
     socketRef.current = ws;
 
     ws.onopen = () => {
-      if (!isComponentMounted.current) return;
+      if (!isComponentMounted.current || socketRef.current !== ws) return;
       setIsServerOnline(true);
       ws.send(JSON.stringify({ type: 'REGISTER_DESKTOP', deviceName: 'PNP Desktop Billing' }));
       fetchNetworkInfo();
     };
 
     ws.onmessage = (event) => {
-      if (!isComponentMounted.current) return;
+      if (!isComponentMounted.current || socketRef.current !== ws) return;
       try {
         const msg = JSON.parse(event.data);
 
@@ -386,7 +440,7 @@ export function useWirelessScanner() {
             if (nonLoop) setSelectedIp(nonLoop.ip);
           }
         } else if (msg.type === 'SCAN_DATA') {
-          handleIncomingScan(msg.data, msg.deviceName || 'Mobile Phone');
+          handleIncomingScanRef.current(msg.data, msg.deviceName || 'Mobile Phone');
         }
       } catch (err) {
         console.error('Error parsing WebSocket message:', err);
@@ -394,7 +448,7 @@ export function useWirelessScanner() {
     };
 
     ws.onclose = () => {
-      if (!isComponentMounted.current) return;
+      if (!isComponentMounted.current || socketRef.current !== ws) return;
       setIsServerOnline(false);
       setIsPhoneConnected(false);
       // Try to reconnect every 3 seconds
@@ -402,11 +456,11 @@ export function useWirelessScanner() {
     };
 
     ws.onerror = () => {
-      if (!isComponentMounted.current) return;
+      if (!isComponentMounted.current || socketRef.current !== ws) return;
       setIsServerOnline(false);
       try { ws.close(); } catch (e) {}
     };
-  }, [fetchNetworkInfo, handleIncomingScan]);
+  }, [fetchNetworkInfo]);
 
   useEffect(() => {
     isComponentMounted.current = true;
@@ -415,9 +469,18 @@ export function useWirelessScanner() {
 
     return () => {
       isComponentMounted.current = false;
-      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
       if (socketRef.current) {
-        try { socketRef.current.close(); } catch (e) {}
+        const oldWs = socketRef.current;
+        oldWs.onopen = null;
+        oldWs.onmessage = null;
+        oldWs.onclose = null;
+        oldWs.onerror = null;
+        socketRef.current = null;
+        try { oldWs.close(); } catch (e) {}
       }
     };
   }, [connectWebSocket, fetchNetworkInfo]);

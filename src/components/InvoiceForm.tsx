@@ -91,9 +91,11 @@ export const InvoiceForm: React.FC = () => {
   const handleActiveScanKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      if (activeScanInput.trim()) {
-        processScannedBarcode(activeScanInput);
+      const val = (e.currentTarget.value || activeScanInput).trim();
+      if (val) {
+        processScannedBarcode(val);
         setActiveScanInput('');
+        e.currentTarget.value = '';
       }
     }
   };
