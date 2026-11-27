@@ -204,7 +204,8 @@ export function useWirelessScanner() {
     currentInvoice,
     catalog,
     addLineItem,
-    setCctvDetails
+    setCctvDetails,
+    recordScannedBarcodeToExcel
   } = useInvoiceStore();
 
   // Fetch local network IP addresses from relay server HTTP endpoint
@@ -256,6 +257,14 @@ export function useWirelessScanner() {
     const tag = payload.tagNumber?.trim().toUpperCase();
     const sn = (payload.serialNumber || rawText).trim();
 
+    // 3b. Store & list scanned barcode/code in Excel sheet ("Scanned Barcodes") in order
+    recordScannedBarcodeToExcel({
+      code: sn,
+      tagNumber: tag || 'UNASSIGNED',
+      sectionName: payload.sectionName || '',
+      deviceName
+    });
+
     if (tag) {
       setTagRecords(prev => {
         // Read latest from localStorage so deleted tags/serials are never resurrected
@@ -280,7 +289,7 @@ export function useWirelessScanner() {
         const updatedSerials = Array.from(new Set([...existing.serials, sn]));
         const updatedItems = [historyItem, ...(existing.items || [])].slice(0, 30);
 
-        return {
+        const nextRecords = {
           ...base,
           [existingKey]: {
             ...existing,
@@ -291,6 +300,13 @@ export function useWirelessScanner() {
             updatedAt: new Date().toISOString()
           }
         };
+
+        try {
+          localStorage.setItem('pnp_scanner_tag_records', JSON.stringify(nextRecords));
+          setTimeout(() => window.dispatchEvent(new Event('storage')), 0);
+        } catch {}
+
+        return nextRecords;
       });
     }
 
@@ -360,7 +376,7 @@ export function useWirelessScanner() {
     setTimeout(() => {
       setToastMessage(current => (current && current.id === toastId ? null : current));
     }, 4500);
-  }, [activeTab, catalog, currentInvoice, addLineItem, setCctvDetails]);
+  }, [activeTab, catalog, currentInvoice, addLineItem, setCctvDetails, recordScannedBarcodeToExcel]);
 
   // Tag helper actions
   const addCustomTagRecord = useCallback((tagNumber: string, sectionName: string, serials: string[]) => {
@@ -486,13 +502,15 @@ export function useWirelessScanner() {
   }, [connectWebSocket, fetchNetworkInfo]);
 
   // Simulate a test scan from PC
-  const simulateScan = (text: string) => {
+  const simulateScan = (text: string, tagNumber?: string) => {
+    const cleanTag = tagNumber?.trim().toUpperCase() || undefined;
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
       socketRef.current.send(JSON.stringify({
         type: 'SIMULATE_SCAN',
         payload: {
           rawText: text,
           serialNumber: text.replace(/^SN:/i, ''),
+          tagNumber: cleanTag,
           model: text.includes('DS-') ? text.split(' ')[0] : 'Simulated Item',
           brand: 'Simulator',
           timestamp: Date.now()
@@ -503,6 +521,7 @@ export function useWirelessScanner() {
       handleIncomingScan({
         rawText: text,
         serialNumber: text,
+        tagNumber: cleanTag,
         model: 'Simulated Item',
         timestamp: Date.now()
       }, 'Test Simulator');

@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import * as XLSX from 'xlsx';
 import { 
   User, Phone, MapPin, Hash, CreditCard, 
   Plus, Save, Printer, RefreshCw, Layers, Search, 
   Tag, Check, Copy, Smartphone, Trash2, X, ChevronDown, ChevronUp,
-  Boxes 
+  Boxes, FileSpreadsheet 
 } from 'lucide-react';
 import { useInvoiceStore } from '../store/useInvoiceStore';
 import { LineItemRow } from './LineItemRow';
@@ -32,7 +33,9 @@ export const InvoiceForm: React.FC = () => {
     saveCurrentInvoice,
     resetInvoiceForm,
     setActiveTab,
-    isEditing
+    isEditing,
+    spreadsheetData,
+    recordScannedBarcodeToExcel
   } = useInvoiceStore();
 
   const [showCustomerModal, setShowCustomerModal] = useState(false);
@@ -86,6 +89,43 @@ export const InvoiceForm: React.FC = () => {
       const updatedSn = currentSn ? `${currentSn}, ${cleanSn}` : cleanSn;
       setCctvDetails(currentInvoice.installationSite || '', currentInvoice.warrantyInfo || '', updatedSn);
     }
+
+    // 3. Store scanned barcode in Tag Records (pnp_scanner_tag_records) & Excel ("Scanned Barcodes" sheet)
+    const activeTag = (selectedTagNumber || 'TAG-01').trim().toUpperCase();
+    const cleanSnForTag = text.replace(/^SN:/i, '').trim();
+    setTagRecords(prev => {
+      let base = prev;
+      try {
+        const saved = localStorage.getItem('pnp_scanner_tag_records');
+        if (saved !== null) base = JSON.parse(saved);
+      } catch {}
+      const existingKey = Object.keys(base).find(k => k.toUpperCase() === activeTag) || activeTag;
+      const existing = base[existingKey] || {
+        tagNumber: activeTag,
+        sectionName: `Tag ${activeTag}`,
+        serials: []
+      };
+      const updatedSerials = Array.from(new Set([...(existing.serials || []), cleanSnForTag]));
+      const next = {
+        ...base,
+        [existingKey]: {
+          ...existing,
+          tagNumber: activeTag,
+          serials: updatedSerials
+        }
+      };
+      try {
+        localStorage.setItem('pnp_scanner_tag_records', JSON.stringify(next));
+        setTimeout(() => window.dispatchEvent(new Event('storage')), 0);
+      } catch {}
+      return next;
+    });
+
+    recordScannedBarcodeToExcel({
+      code: text,
+      tagNumber: activeTag,
+      deviceName: 'Active Scanner Field'
+    });
   };
 
   const handleActiveScanKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -125,6 +165,97 @@ export const InvoiceForm: React.FC = () => {
   });
 
   const [isTagSectionCollapsed, setIsTagSectionCollapsed] = useState<boolean>(false);
+  const [showSerialSuggestions, setShowSerialSuggestions] = useState(false);
+  const [showTagSuggestions, setShowTagSuggestions] = useState(false);
+  const [showActiveScanSuggestions, setShowActiveScanSuggestions] = useState(false);
+
+  // Ordered Tag Numbers & Barcode/Serial Number suggestions from tagRecords + Scanned Barcodes Excel sheet
+  const orderedSuggestions = useMemo(() => {
+    const sortedTagEntries = Object.entries(tagRecords).sort(([a], [b]) =>
+      a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+    );
+
+    const tagSuggestions = sortedTagEntries.map(([tag, rec], idx) => ({
+      kind: 'tag' as const,
+      order: idx + 1,
+      tag: tag.toUpperCase(),
+      label: tag.toUpperCase(),
+      serials: rec.serials || [],
+      sectionName: rec.sectionName || ''
+    }));
+
+    const codeSuggestions: Array<{ kind: 'code'; order: number; tag: string; label: string; sectionName?: string }> = [];
+    const seenCodes = new Set<string>();
+    let orderCounter = 1;
+
+    // 1. Add codes from Scanned Barcodes Excel sheet in exact scan order
+    const scannedSheet = spreadsheetData.sheets.find(s => s.id === 'sheet-scanned-barcodes');
+    if (scannedSheet) {
+      scannedSheet.rows.forEach((row) => {
+        const code = String(row.code || '').trim();
+        const tag = String(row.tagNumber || 'UNASSIGNED').trim().toUpperCase();
+        if (code && !seenCodes.has(`${tag}::${code}`)) {
+          seenCodes.add(`${tag}::${code}`);
+          codeSuggestions.push({
+            kind: 'code',
+            order: Number(row.orderNo) || orderCounter,
+            tag,
+            label: code,
+            sectionName: String(row.sectionName || '')
+          });
+          orderCounter++;
+        }
+      });
+    }
+
+    // 2. Include any tagRecords serials not yet in the sheet in tag/serial order
+    sortedTagEntries.forEach(([tag, rec]) => {
+      const upperTag = tag.toUpperCase();
+      (rec.serials || []).forEach((sn) => {
+        const cleanSn = sn.trim();
+        if (cleanSn && !seenCodes.has(`${upperTag}::${cleanSn}`)) {
+          seenCodes.add(`${upperTag}::${cleanSn}`);
+          codeSuggestions.push({
+            kind: 'code',
+            order: orderCounter++,
+            tag: upperTag,
+            label: cleanSn,
+            sectionName: rec.sectionName || ''
+          });
+        }
+      });
+    });
+
+    return { tagSuggestions, codeSuggestions };
+  }, [tagRecords, spreadsheetData.sheets]);
+
+  const handleExportTagsExcel = () => {
+    const rows: Array<Record<string, any>> = [];
+    let order = 1;
+    Object.entries(tagRecords)
+      .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }))
+      .forEach(([tag, rec]) => {
+        (rec.serials || []).forEach((sn) => {
+          rows.push({
+            'Order #': order++,
+            'Tag Number': tag.toUpperCase(),
+            'Barcode / S/N Code': sn,
+            'Section / Note': rec.sectionName || ''
+          });
+        });
+      });
+
+    if (rows.length === 0) {
+      alert('No scanned serial numbers to export.');
+      return;
+    }
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [{ wch: 10 }, { wch: 16 }, { wch: 28 }, { wch: 28 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Scanned Barcodes');
+    XLSX.writeFile(wb, `PNP_Scanned_Barcodes_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
 
   // Sync tag records from localStorage on focus or periodic poll
   useEffect(() => {
@@ -444,7 +575,7 @@ export const InvoiceForm: React.FC = () => {
                       />
                     </div>
 
-                    <div>
+                    <div className="relative">
                       <div className="flex items-center justify-between mb-1">
                         <label className="block text-[11px] font-semibold text-slate-300">
                           Hardware Serial Numbers (S/N)
@@ -464,10 +595,66 @@ export const InvoiceForm: React.FC = () => {
                       <input
                         type="text"
                         value={currentInvoice.serialNumbers || ''}
-                        onChange={(e) => setCctvDetails(currentInvoice.installationSite || '', currentInvoice.warrantyInfo || '', e.target.value)}
+                        onFocus={() => setShowSerialSuggestions(true)}
+                        onBlur={() => setTimeout(() => setShowSerialSuggestions(false), 180)}
+                        onChange={(e) => {
+                          setCctvDetails(currentInvoice.installationSite || '', currentInvoice.warrantyInfo || '', e.target.value);
+                          setShowSerialSuggestions(true);
+                        }}
                         placeholder="e.g. DVR S/N: HK90123; CAM 1-4 S/N: C78910-14"
                         className="w-full bg-slate-950 border border-slate-800 focus:border-sky-500 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 font-mono"
                       />
+                      {showSerialSuggestions && (orderedSuggestions.tagSuggestions.length > 0 || orderedSuggestions.codeSuggestions.length > 0) && (() => {
+                        const rawVal = currentInvoice.serialNumbers || '';
+                        const token = (rawVal.split(',').pop() || '').trim().toLowerCase();
+                        const matchingTags = orderedSuggestions.tagSuggestions.filter(t => !token || t.tag.toLowerCase().includes(token));
+                        const matchingCodes = orderedSuggestions.codeSuggestions.filter(c => !token || c.label.toLowerCase().includes(token) || c.tag.toLowerCase().includes(token));
+                        if (matchingTags.length === 0 && matchingCodes.length === 0) return null;
+                        return (
+                          <div className="absolute z-30 left-0 right-0 mt-1 max-h-52 overflow-y-auto bg-slate-900 border border-sky-500/40 rounded-xl shadow-2xl p-1.5 space-y-1">
+                            <div className="px-2 py-0.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                              Suggested in Order (Tags &amp; Codes)
+                            </div>
+                            {matchingTags.slice(0, 6).map((t) => (
+                              <button
+                                key={`sn-tag-${t.tag}`}
+                                type="button"
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  const formatted = `[${t.tag}] ${t.serials.join(', ')}`;
+                                  const parts = rawVal.split(',').map(s => s.trim()).filter(Boolean);
+                                  if (token && parts.length > 0) parts.pop();
+                                  const updated = [...parts, formatted].join(', ');
+                                  setCctvDetails(currentInvoice.installationSite || '', currentInvoice.warrantyInfo || '', updated);
+                                  setShowSerialSuggestions(false);
+                                }}
+                                className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-sky-500/20 flex items-center justify-between text-xs font-mono"
+                              >
+                                <span className="text-sky-300 font-bold">#{t.order} 🏷️ {t.tag}</span>
+                                <span className="text-[10px] text-slate-400">{t.serials.length} S/N in order</span>
+                              </button>
+                            ))}
+                            {matchingCodes.slice(0, 10).map((c, idx) => (
+                              <button
+                                key={`sn-code-${c.tag}-${c.label}-${idx}`}
+                                type="button"
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  const parts = rawVal.split(',').map(s => s.trim()).filter(Boolean);
+                                  if (token && parts.length > 0) parts.pop();
+                                  const updated = [...parts, c.label].join(', ');
+                                  setCctvDetails(currentInvoice.installationSite || '', currentInvoice.warrantyInfo || '', updated);
+                                  setShowSerialSuggestions(false);
+                                }}
+                                className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-emerald-500/20 flex items-center justify-between text-xs font-mono"
+                              >
+                                <span className="text-emerald-300 font-bold">#{c.order} {c.label}</span>
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-sky-400">{c.tag}</span>
+                              </button>
+                            ))}
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
 
@@ -504,13 +691,16 @@ export const InvoiceForm: React.FC = () => {
                             <input
                               type="text"
                               value={tagSearchQuery}
+                              onFocus={() => setShowTagSuggestions(true)}
+                              onBlur={() => setTimeout(() => setShowTagSuggestions(false), 180)}
                               onChange={(e) => {
                                 setTagSearchQuery(e.target.value);
+                                setShowTagSuggestions(true);
                                 if (e.target.value.trim()) {
                                   setSelectedTagNumber(e.target.value.trim().toUpperCase());
                                 }
                               }}
-                              placeholder="Type Tag # (e.g. TAG-01, BOX-A)..."
+                              placeholder="Type Tag # or Code (e.g. TAG-01)..."
                               className="w-full bg-slate-900 border border-slate-700/80 focus:border-sky-400 rounded-xl pl-8 pr-7 py-1.5 text-xs text-white placeholder-slate-500 font-mono"
                             />
                             {tagSearchQuery && (
@@ -523,19 +713,77 @@ export const InvoiceForm: React.FC = () => {
                                 <X className="h-3.5 w-3.5" />
                               </button>
                             )}
+                            {showTagSuggestions && (orderedSuggestions.tagSuggestions.length > 0 || orderedSuggestions.codeSuggestions.length > 0) && (() => {
+                              const q = tagSearchQuery.trim().toLowerCase();
+                              const mTags = orderedSuggestions.tagSuggestions.filter(t => !q || t.tag.toLowerCase().includes(q));
+                              const mCodes = orderedSuggestions.codeSuggestions.filter(c => !q || c.label.toLowerCase().includes(q) || c.tag.toLowerCase().includes(q));
+                              if (mTags.length === 0 && mCodes.length === 0) return null;
+                              return (
+                                <div className="absolute z-30 left-0 right-0 mt-1 max-h-52 overflow-y-auto bg-slate-900 border border-sky-500/40 rounded-xl shadow-2xl p-1.5 space-y-1">
+                                  <div className="px-2 py-0.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                                    Ordered Suggestions
+                                  </div>
+                                  {mTags.slice(0, 6).map(t => (
+                                    <button
+                                      key={`ts-${t.tag}`}
+                                      type="button"
+                                      onMouseDown={(e) => {
+                                        e.preventDefault();
+                                        setSelectedTagNumber(t.tag);
+                                        setTagSearchQuery(t.tag);
+                                        setShowTagSuggestions(false);
+                                      }}
+                                      className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-sky-500/20 flex items-center justify-between text-xs font-mono"
+                                    >
+                                      <span className="text-sky-300 font-bold">#{t.order} 🏷️ {t.tag}</span>
+                                      <span className="text-[10px] text-slate-400">{t.serials.length} S/N</span>
+                                    </button>
+                                  ))}
+                                  {mCodes.slice(0, 8).map((c, idx) => (
+                                    <button
+                                      key={`cs-${c.tag}-${c.label}-${idx}`}
+                                      type="button"
+                                      onMouseDown={(e) => {
+                                        e.preventDefault();
+                                        setSelectedTagNumber(c.tag);
+                                        const currentSn = currentInvoice.serialNumbers?.trim() || '';
+                                        const updated = currentSn ? `${currentSn}, ${c.label}` : c.label;
+                                        setCctvDetails(currentInvoice.installationSite || '', currentInvoice.warrantyInfo || '', updated);
+                                        setShowTagSuggestions(false);
+                                      }}
+                                      className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-emerald-500/20 flex items-center justify-between text-xs font-mono"
+                                    >
+                                      <span className="text-emerald-300 font-bold">#{c.order} {c.label}</span>
+                                      <span className="text-[10px] text-sky-400">{c.tag}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              );
+                            })()}
                           </div>
 
-                          {/* Clear All Tags Button */}
+                          {/* Export Excel & Clear All Tags Buttons */}
                           {Object.keys(tagRecords).length > 0 && (
-                            <button
-                              type="button"
-                              onClick={handleClearAllTags}
-                              title="Clear all saved tags (सबै ट्याग हटाउनुहोस्)"
-                              className="px-2.5 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/30 rounded-xl text-[11px] font-semibold flex items-center space-x-1 transition-all shrink-0"
-                            >
-                              <Trash2 className="h-3 w-3" />
-                              <span className="hidden sm:inline">Clear All</span>
-                            </button>
+                            <>
+                              <button
+                                type="button"
+                                onClick={handleExportTagsExcel}
+                                title="Export scanned barcodes & S/N to Excel (.xlsx)"
+                                className="px-2.5 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-300 border border-emerald-500/30 rounded-xl text-[11px] font-semibold flex items-center space-x-1 transition-all shrink-0"
+                              >
+                                <FileSpreadsheet className="h-3 w-3" />
+                                <span className="hidden sm:inline">Excel</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleClearAllTags}
+                                title="Clear all saved tags (सबै ट्याग हटाउनुहोस्)"
+                                className="px-2.5 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/30 rounded-xl text-[11px] font-semibold flex items-center space-x-1 transition-all shrink-0"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                                <span className="hidden sm:inline">Clear All</span>
+                              </button>
+                            </>
                           )}
                         </div>
                       )}
@@ -828,11 +1076,64 @@ export const InvoiceForm: React.FC = () => {
               data-scanner-input="true"
               type="text"
               value={activeScanInput}
-              onChange={(e) => setActiveScanInput(e.target.value)}
+              onFocus={() => setShowActiveScanSuggestions(true)}
+              onBlur={() => setTimeout(() => setShowActiveScanSuggestions(false), 180)}
+              onChange={(e) => {
+                setActiveScanInput(e.target.value);
+                setShowActiveScanSuggestions(true);
+              }}
               onKeyDown={handleActiveScanKeyDown}
               placeholder="📱 Scan with phone camera or type item code / serial & press Enter to inject..."
               className="w-full bg-slate-900 border border-slate-700 focus:border-sky-400 focus:ring-2 focus:ring-sky-500/30 rounded-xl px-4 py-2.5 text-xs font-mono text-white placeholder-slate-500 shadow-inner transition-all"
             />
+            {showActiveScanSuggestions && (orderedSuggestions.tagSuggestions.length > 0 || orderedSuggestions.codeSuggestions.length > 0) && (() => {
+              const q = activeScanInput.trim().toLowerCase();
+              const mTags = orderedSuggestions.tagSuggestions.filter(t => !q || t.tag.toLowerCase().includes(q));
+              const mCodes = orderedSuggestions.codeSuggestions.filter(c => !q || c.label.toLowerCase().includes(q) || c.tag.toLowerCase().includes(q));
+              if (mTags.length === 0 && mCodes.length === 0) return null;
+              return (
+                <div className="absolute z-30 left-0 right-0 mt-1 max-h-52 overflow-y-auto bg-slate-900 border border-sky-500/40 rounded-xl shadow-2xl p-1.5 space-y-1">
+                  <div className="px-2 py-0.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    Suggested Tag Numbers &amp; Codes (In Order)
+                  </div>
+                  {mTags.slice(0, 5).map(t => (
+                    <button
+                      key={`as-tag-${t.tag}`}
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        const formattedSn = `[${t.tag}] ${t.serials.join(', ')}`;
+                        const currentSn = currentInvoice.serialNumbers?.trim() || '';
+                        const updated = currentSn ? `${currentSn}, ${formattedSn}` : formattedSn;
+                        setCctvDetails(currentInvoice.installationSite || '', currentInvoice.warrantyInfo || '', updated);
+                        setActiveScanInput('');
+                        setShowActiveScanSuggestions(false);
+                      }}
+                      className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-sky-500/20 flex items-center justify-between text-xs font-mono"
+                    >
+                      <span className="text-sky-300 font-bold">#{t.order} 🏷️ {t.tag}</span>
+                      <span className="text-[10px] text-slate-400">Insert all {t.serials.length} S/N</span>
+                    </button>
+                  ))}
+                  {mCodes.slice(0, 10).map((c, idx) => (
+                    <button
+                      key={`as-code-${c.tag}-${c.label}-${idx}`}
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        processScannedBarcode(c.label);
+                        setActiveScanInput('');
+                        setShowActiveScanSuggestions(false);
+                      }}
+                      className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-emerald-500/20 flex items-center justify-between text-xs font-mono"
+                    >
+                      <span className="text-emerald-300 font-bold">#{c.order} {c.label}</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-sky-400">{c.tag}</span>
+                    </button>
+                  ))}
+                </div>
+              );
+            })()}
           </div>
 
           <button

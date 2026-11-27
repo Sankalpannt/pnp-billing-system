@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import QRCode from 'qrcode';
+import * as XLSX from 'xlsx';
 import { 
   Smartphone, Wifi, X, CheckCircle2, Copy, Check, 
-  Send, RefreshCw, Layers, Zap, Laptop, Globe, Tag, Plus, Search, Trash2 
+  Send, RefreshCw, Layers, Zap, Laptop, Globe, Tag, Plus, Search, Trash2, FileSpreadsheet 
 } from 'lucide-react';
 import { NetworkInterface, MobileDevice, ScannedPayload, TagRecord } from '../hooks/useWirelessScanner';
 import { useInvoiceStore } from '../store/useInvoiceStore';
@@ -18,7 +19,7 @@ interface WirelessScannerModalProps {
   onSelectIp: (ip: string) => void;
   scanHistory: Array<ScannedPayload & { receivedAt: string }>;
   tagRecords?: Record<string, TagRecord>;
-  onSimulateScan: (text: string) => void;
+  onSimulateScan: (text: string, tagNumber?: string) => void;
   onRefreshNetwork: () => void;
 }
 
@@ -99,7 +100,7 @@ export const WirelessScannerModal: React.FC<WirelessScannerModalProps> = ({
   const handleTestSend = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!customTestInput.trim()) return;
-    onSimulateScan(customTestInput.trim());
+    onSimulateScan(customTestInput.trim(), customTestTag.trim() || 'TAG-01');
     setCustomTestInput('');
   };
 
@@ -148,6 +149,35 @@ export const WirelessScannerModal: React.FC<WirelessScannerModalProps> = ({
         window.dispatchEvent(new Event('storage'));
       } catch {}
     }
+  };
+
+  const handleExportTagsExcel = () => {
+    const sortedTags = Object.entries(localTags).sort(([a], [b]) =>
+      a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+    );
+    const rows: Array<Record<string, any>> = [];
+    let order = 1;
+    sortedTags.forEach(([tag, record]) => {
+      (record.serials || []).forEach((sn) => {
+        rows.push({
+          'Order #': order++,
+          'Tag Number': tag.toUpperCase(),
+          'Barcode / S/N Code': sn,
+          'Section / Note': record.sectionName || ''
+        });
+      });
+    });
+
+    if (rows.length === 0) {
+      alert('No scanned serial numbers to export.');
+      return;
+    }
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [{ wch: 10 }, { wch: 16 }, { wch: 28 }, { wch: 28 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Scanned Barcodes');
+    XLSX.writeFile(wb, `PNP_Scanned_Barcodes_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
   return (
@@ -385,15 +415,26 @@ export const WirelessScannerModal: React.FC<WirelessScannerModalProps> = ({
                       />
                     </div>
                     {Object.keys(localTags).length > 0 && (
-                      <button
-                        type="button"
-                        onClick={handleClearAllTags}
-                        title="Clear all saved tags (सबै ट्याग हटाउनुहोस्)"
-                        className="px-2.5 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/30 rounded-xl text-xs font-semibold flex items-center space-x-1 transition-all"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                        <span>Clear All</span>
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          onClick={handleExportTagsExcel}
+                          title="Export all scanned barcodes & S/N to Excel (.xlsx)"
+                          className="px-2.5 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-300 border border-emerald-500/30 rounded-xl text-xs font-semibold flex items-center space-x-1 transition-all"
+                        >
+                          <FileSpreadsheet className="h-3.5 w-3.5" />
+                          <span>Excel</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleClearAllTags}
+                          title="Clear all saved tags (सबै ट्याग हटाउनुहोस्)"
+                          className="px-2.5 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/30 rounded-xl text-xs font-semibold flex items-center space-x-1 transition-all"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          <span>Clear All</span>
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -605,7 +646,7 @@ export const WirelessScannerModal: React.FC<WirelessScannerModalProps> = ({
                       key={idx}
                       type="button"
                       onClick={() => {
-                        onSimulateScan(preset.val);
+                        onSimulateScan(preset.val, preset.tag);
                       }}
                       className="p-2.5 rounded-xl bg-slate-900 hover:bg-sky-950/60 hover:border-sky-500/50 text-left border border-slate-800 transition-all text-xs group"
                     >

@@ -1,6 +1,6 @@
 {
   "name": "pnp-tech-traders-billing",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "description": "Billing & Invoice Management Desktop Software for PNP TECH TRADERS",
   "main": "electron/main.cjs",
   "type": "module",
