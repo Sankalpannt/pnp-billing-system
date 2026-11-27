@@ -1175,6 +1175,13 @@ export const InvoiceForm: React.FC = () => {
                   item={item}
                   catalog={catalog}
                   showDiscount={currentInvoice.showDiscount !== false}
+                  tagSuggestions={orderedSuggestions.tagSuggestions}
+                  codeSuggestions={orderedSuggestions.codeSuggestions}
+                  onInsertSerials={(snText) => {
+                    const currentSn = currentInvoice.serialNumbers?.trim() || '';
+                    const updated = currentSn ? `${currentSn}, ${snText}` : snText;
+                    setCctvDetails(currentInvoice.installationSite || '', currentInvoice.warrantyInfo || '', updated);
+                  }}
                   onUpdate={updateLineItem}
                   onRemove={removeLineItem}
                 />
